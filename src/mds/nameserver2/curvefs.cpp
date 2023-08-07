@@ -224,6 +224,16 @@ StatusCode CurveFS::SnapShotFile(const FileInfo * origFileInfo,
     }
 }
 
+StatusCode CurveFS::SnapShotFile(const FileInfo * origFileInfo,
+                                const FileInfo * snapshotFile, 
+                                const FileInfo * innerSnapshot) const {
+    if (storage_->SnapShotFile(origFileInfo, snapshotFile, innerSnapshot) != StoreStatus::OK) {
+        return StatusCode::kStorageError;
+    } else {
+        return StatusCode::kOK;
+    }
+}
+
 StatusCode CurveFS::CreateFile(const std::string & fileName,
                                const std::string& owner,
                                FileType filetype, uint64_t length,
@@ -302,6 +312,12 @@ StatusCode CurveFS::CreateFile(const std::string & fileName,
         fileInfo.set_filestatus(FileStatus::kFileCreated);
         fileInfo.set_stripeunit(stripeUnit);
         fileInfo.set_stripecount(stripeCount);
+
+        // put a clone file, for the usage of instant rollback
+        auto clone = fileInfo.add_clones();
+        clone->set_id(1);
+        clone->set_seqnum(kStartSeqNum);
+        clone->set_recoversource(0);
 
         ret = PutFile(fileInfo);
         return ret;
@@ -533,7 +549,7 @@ StatusCode CurveFS::IsSnapshotAllowed(const std::string &fileName) {
 }
 
 StatusCode CurveFS::DeleteFile(const std::string & filename, uint64_t fileId,
-                            bool deleteForce) {
+                            bool deleteForce, bool deleteSnaps) {
     std::string lastEntry;
     FileInfo parentFileInfo;
     auto ret = WalkPath(filename, &parentFileInfo, &lastEntry);
@@ -588,25 +604,8 @@ StatusCode CurveFS::DeleteFile(const std::string & filename, uint64_t fileId,
                   << ", filename = " << filename;
         return StatusCode::kOK;
     } else if (fileInfo.filetype() == FileType::INODE_PAGEFILE) {
-        StatusCode ret = CheckFileCanChange(filename, fileInfo);
-        if (ret == StatusCode::kDeleteFileBeingCloned) {
-            bool isHasCloneRely;
-            StatusCode ret1 = CheckHasCloneRely(filename,
-                                                       fileInfo.owner(),
-                                                       &isHasCloneRely);
-            if (ret1 != StatusCode::kOK) {
-                LOG(ERROR) << "delete file, check file clone ref fail,"
-                           << "filename = " << filename
-                           << ", ret = " << ret1;
-                return ret1;
-            }
-
-            if (isHasCloneRely) {
-                LOG(WARNING) << "delete file, can not delete file, "
-                            << "file has clone rely, filename = " << filename;
-                return StatusCode::kDeleteFileBeingCloned;
-            }
-        } else if (ret != StatusCode::kOK) {
+        StatusCode ret = CheckFileCanDelete(filename, deleteSnaps);
+        if (ret != StatusCode::kOK) {
             LOG(ERROR) << "delete file, can not delete file"
                        << ", filename = " << filename
                        << ", ret = " << ret;
@@ -814,6 +813,120 @@ StatusCode CurveFS::CheckFileCanChange(const std::string &fileName,
         return StatusCode::kFileOccupied;
     }
 
+    return StatusCode::kOK;
+}
+
+StatusCode CurveFS::CheckFileCanDelete(const std::string &fileName, bool deleteSnaps) {
+    // Check if the file has a snapshot
+    std::vector<FileInfo> snapshotFileInfos;
+    auto ret = ListSnapShotFile(fileName, &snapshotFileInfos);
+    if (ret != StatusCode::kOK) {
+        LOG(ERROR) << "CheckFileCanDelete, list snapshot file fail"
+                    << ", fileName = " << fileName;
+        return ret;
+    }
+
+    // If the snapshot is under deleting or to be deleted,
+    // it has no reason to prevent the file from deletion 
+    size_t existingSnapNum = 0;
+    for (const FileInfo& snap : snapshotFileInfos) {
+        if (snap.filestatus() == FileStatus::kFileCreated) {
+            existingSnapNum++;
+        }
+    }
+
+    if (existingSnapNum > 0) {
+        if (!deleteSnaps) {
+            LOG(WARNING) << "CheckFileCanDelete, file is under snapshot "
+                        << " and deleteSnaps is false, "
+                        << "cannot delete fileName = " << fileName;
+            return StatusCode::kFileUnderSnapShot;
+        } else {
+            LOG(INFO) << "File is checked to be deleted with " << existingSnapNum
+                      << " existing normal snapshots, fileName = " << fileName;
+        }
+    }
+
+    // since the file record is not persistent, after mds switching the leader,
+    // file record manager is empty
+    // after file is opened, there will be refresh session requests in each
+    // file record expiration time
+    // so wait for a file record expiration time to make sure that
+    // the file record is updated
+    if (!IsStartEnoughTime(1)) {
+        LOG(WARNING) << "MDS doesn't start enough time";
+        return StatusCode::kNotSupported;
+    }
+
+    std::vector<butil::EndPoint> endPoints;
+    if (fileRecordManager_->FindFileMountPoint(fileName, &endPoints) &&
+        !endPoints.empty()) {
+        LOG(WARNING) << fileName << " has " << endPoints.size()
+                     << " mount points";
+        return StatusCode::kFileOccupied;
+    }
+
+    return StatusCode::kOK;
+}
+
+/**
+ * File is not allowed to rollback when there are clients mounting it
+ * or abnormal snapshot
+*/
+StatusCode CurveFS::CheckFileCanRecover(const std::string &fileName, FileStatus snapStatus) {
+    if (snapStatus == FileStatus::kFileDeleting) {
+        LOG(INFO) << "fileName = " << fileName << ", snapshot is under deleting";
+        return StatusCode::kSnapshotDeleting;
+    }
+    if (snapStatus == FileStatus::kFileToBeDeleted) {
+        LOG(INFO) << "fileName = " << fileName << ", snapshot is marked to be deleted";
+        return StatusCode::kSnapshotToBeDeleted;
+    }
+    if (snapStatus != FileStatus::kFileCreated) {
+        LOG(ERROR) << "fileName = " << fileName 
+                   << ", status error, status = " << snapStatus;
+        return StatusCode::KInternalError;
+    }
+    // since the file record is not persistent, after mds switching the leader,
+    // file record manager is empty
+    // after file is opened, there will be refresh session requests in each
+    // file record expiration time
+    // so wait for a file record expiration time to make sure that
+    // the file record is updated
+    if (!IsStartEnoughTime(1)) {
+        LOG(WARNING) << "MDS doesn't start enough time";
+        return StatusCode::kNotSupported;
+    }
+
+    std::vector<butil::EndPoint> endPoints;
+    if (fileRecordManager_->FindFileMountPoint(fileName, &endPoints) &&
+        !endPoints.empty()) {
+        LOG(WARNING) << fileName << " has " << endPoints.size()
+                     << " mount points";
+        return StatusCode::kFileOccupied;
+    }
+
+    return StatusCode::kOK;
+}
+
+StatusCode CurveFS::CheckSnapshotCanDelete(const std::string &fileName, FileStatus snapStatus) {
+   if (snapStatus == FileStatus::kFileToBeDeleted) {
+        LOG(INFO) << "fileName = " << fileName
+                  << ", snapshot was already marked to be deleted";
+        return StatusCode::kSnapshotToBeDeleted;
+    }
+
+    if (snapStatus == FileStatus::kFileDeleting) {
+        LOG(INFO) << "fileName = " << fileName
+                  << ", snapshot is under deleting";
+        return StatusCode::kSnapshotDeleting;
+    }
+
+    if (snapStatus != FileStatus::kFileCreated) {
+        LOG(ERROR) << "fileName = " << fileName
+                   << ", status error, status = " << snapStatus;
+        return StatusCode::KInternalError;
+    }
     return StatusCode::kOK;
 }
 
@@ -1230,6 +1343,12 @@ StatusCode CurveFS::CreateSnapShotFile2(const std::string &fileName,
         return ret;
     }
 
+    // Not allowed to create snapshot when file is under deleting
+    if (fileInfo.filestatus() == FileStatus::kFileDeleting) {
+        LOG(INFO) << "fileName = " << fileName << " is under deleting";
+        return StatusCode::kFileUnderDeleting;
+    }
+
     // TTODO(hzsunjianliang): check if fileis open and session not expire
     // then invalide client
 
@@ -1249,10 +1368,21 @@ StatusCode CurveFS::CreateSnapShotFile2(const std::string &fileName,
             std::to_string(fileInfo.seqnum()));
     snapshotFileInfo->set_filestatus(FileStatus::kFileCreated);
 
-    // save snapshot seq number to fileInfo,
+    // save snapshot seq number to latest clones in fileInfo,
     // in order to let client know the latest snaps through RefreshSession rpc
-    fileInfo.add_snaps(fileInfo.seqnum());
-
+    int i = fileInfo.clones_size() - 1;
+    for (; i >= 0; i--) {
+        if (fileInfo.clones(i).seqnum() == fileInfo.seqnum()) {
+            fileInfo.mutable_clones(i)->add_snaps(fileInfo.seqnum());
+            fileInfo.mutable_clones(i)->set_seqnum(fileInfo.seqnum() + 1);
+            break;
+        }
+    }
+    if (i < 0) {
+        LOG(ERROR) << "Found invalid fileinfo when create snapshot, fileInfo = \n"
+                   << fileInfo.DebugString();
+        return StatusCode::kParaError;
+    }
     // add original file snapshot seq number
     fileInfo.set_seqnum(fileInfo.seqnum() + 1);
 
@@ -1262,6 +1392,8 @@ StatusCode CurveFS::CreateSnapShotFile2(const std::string &fileName,
         LOG(ERROR) << fileName << ", SnapShotFile error";
         return StatusCode::kStorageError;
     }
+    LOG(INFO) << "CreateSnapShotFile2 update file to storage success"
+              << ", fileInfo: \n" << fileInfo.DebugString();  
     return StatusCode::kOK;
 }
 
@@ -1388,66 +1520,235 @@ StatusCode CurveFS::DeleteFileSnapShotFile(const std::string &fileName,
 StatusCode CurveFS::DeleteFileSnapShotFile2(const std::string &fileName,
                         FileSeqType seq,
                         std::shared_ptr<AsyncDeleteSnapShotEntity> entity) {
+    return DeleteSnapshot(fileName, seq, false);
+}
+
+StatusCode CurveFS::RecoverFile2Snap(const std::string &fileName, FileSeqType seq) {
     FileInfo snapShotFileInfo, fileInfo;
     StatusCode ret =  GetSnapShotFileInfo(fileName, seq, &snapShotFileInfo, &fileInfo);
     if (ret != StatusCode::kOK) {
-        LOG(INFO) << "fileName = " << fileName
-            << ", seq = "<< seq
-            << ", GetSnapShotFileInfo file ,ret = " << ret;
+        LOG(INFO) << "fileName = " << fileName << ", seq = "<< seq
+                  << ", GetSnapShotFileInfo file, ret = " << ret;
+        return ret;
+    }
+    // Not allowed to recover when file is under deleting
+    if (fileInfo.filestatus() == FileStatus::kFileDeleting) {
+        LOG(INFO) << "fileName = " << fileName << " is under deleting";
+        return StatusCode::kFileUnderDeleting;
+    }
+
+    ret = CheckFileCanRecover(fileName, snapShotFileInfo.filestatus());
+    if (ret != StatusCode::kOK) {
+        LOG(ERROR) << "cannot recover file " << fileName 
+                   << ", seq = " << seq << ", ret = " << ret;
         return ret;
     }
 
-    if (snapShotFileInfo.filestatus() == FileStatus::kFileDeleting) {
-        LOG(INFO) << "fileName = " << fileName
-        << ", seq = " << seq
-        << ", snapshot is under deleting";
-        return StatusCode::kSnapshotDeleting;
-    }
-
-    if (snapShotFileInfo.filestatus() != FileStatus::kFileCreated) {
-        LOG(ERROR) << "fileName = " << fileName
-        << ", seq = " << seq
-        << ", status error, status = " << snapShotFileInfo.filestatus();
-        return StatusCode::KInternalError;
-    }
-
-    snapShotFileInfo.set_filestatus(FileStatus::kFileDeleting);
-    // remove snapshot seq number from fileInfo,
-    // in order to let client know the latest snaps through RefreshSession rpc
-    auto snaps = fileInfo.mutable_snaps();
-    auto findSnap = std::find(snaps->begin(), snaps->end(), seq);
-    if (findSnap == snaps->end()) {
-        LOG(WARNING) << "fileName = " << fileName
-                     << ", seq = " << seq 
-                     << ", not found in fileInfo!";
-    } else {
-        snaps->erase(findSnap);
-    }
-    // // set current existed snapshot seqs to the snapshot fileinfo, 
-    // // thus no need to get these snaps info from original fileinfo
-    // for (auto i = 0; i < fileInfo.snaps_size(); i++) {
-    //     snapShotFileInfo.add_snaps(fileInfo.snaps(i));
-    // }
-
-    // do storage
-    ret = SnapShotFile(&fileInfo, &snapShotFileInfo);
-    if (ret != StatusCode::kOK) {
-        LOG(ERROR) << "fileName = " << fileName
-            << ", seq = " << seq
-            << ", SnapShotFile error = " << ret;
-        LOG(ERROR) << fileName << ", SnapShotFile error";
+    InodeID inodeID;
+    if (InodeIDGenerator_->GenInodeID(&inodeID) != true) {
+        LOG(ERROR) << fileName << ", RecoverFile2Snap GenInodeID error";
         return StatusCode::kStorageError;
     }
-    LOG(INFO) << "DeleteFileSnapShotFile2 update snap and file to storage success"
-              << ", snapInfo: \n" << snapShotFileInfo.DebugString();
+    // this presents the latest file before recovering, aka inner snapshot
+    FileInfo hiddenFileInfo;
+    hiddenFileInfo = fileInfo;
+    hiddenFileInfo.set_filetype(FileType::INODE_SNAPSHOT_PAGEFILE);
+    hiddenFileInfo.set_id(inodeID);
+    hiddenFileInfo.set_ctime(::curve::common::TimeUtility::GetTimeofDayUs());
+    hiddenFileInfo.set_parentid(fileInfo.id());
+    // distinguish inner snapshot by "inner" contained in the name
+    hiddenFileInfo.set_filename(fileInfo.filename() + "-" +
+            std::to_string(fileInfo.seqnum()) + "-inner");
+    auto curID = fileInfo.clones().rbegin()->id();
+    // If the old clonefileinfo has no snapshots, it can be deleted.
+    // Otherwise, it's marked as to be deleted and the deletion process starts
+    // once all of its snapshots have been deleted.
+    if (hiddenFileInfo.clones().rbegin()->snaps_size() == 0) {
+        hiddenFileInfo.set_filestatus(FileStatus::kFileDeleting);
+        fileInfo.mutable_clones()->RemoveLast();
+    } else {
+        hiddenFileInfo.set_filestatus(FileStatus::kFileToBeDeleted);
+    }
 
-    //  message the snapshot delete manager
+    // When recovering file to a snapshot, we need to create a new clonefileinfo 
+    // and increment seqnum of file.
+    auto oldSeqNum = fileInfo.seqnum();
+    auto clone = fileInfo.add_clones();
+    clone->set_id(curID + 1);
+    clone->set_seqnum(oldSeqNum + 1);
+    clone->set_recoversource(seq);
+    fileInfo.set_seqnum(oldSeqNum + 1);
+
+    ret = SnapShotFile(&fileInfo, &hiddenFileInfo);
+    if (ret != StatusCode::kOK) {
+        LOG(ERROR) << "fileName = " << fileName << ", recover to seq = " << seq
+                   << ", SnapShotFile error = " << ret;
+        return StatusCode::kStorageError;
+    }
+    LOG(INFO) << "RecoverFile2Snap update file to storage success"
+              << ", fileInfo: \n" << fileInfo.DebugString()
+              << ", hiddenFileInfo: \n" << hiddenFileInfo.DebugString();
+
+    if (hiddenFileInfo.filestatus() == FileStatus::kFileDeleting) {
+        if (!cleanManager_->SubmitDeleteBatchSnapShotFileJob(
+                            hiddenFileInfo, nullptr)) {
+            LOG(ERROR) << "fileName = " << fileName
+                       << ", seq = " << seq
+                       << ", Delete Task Deduplicated";
+            return StatusCode::KInternalError;
+        }
+        // when a clone file is deleted, the recover source snapshot may have
+        // no dependency and can be deleted.
+        auto recoversource = hiddenFileInfo.clones().rbegin()->recoversource();
+        ret = DeleteSnapshot(fileName, recoversource, true);
+        if (ret != StatusCode::kOK) {
+            LOG(ERROR) << "fileName = " << fileName << ", recoversource = " << recoversource
+                       << ", DeleteSnapshot when recover, error = " << ret;
+            return StatusCode::kStorageError;
+        }
+
+    }
+    return StatusCode::kOK;
+}
+
+StatusCode CurveFS::DeleteSnapshot(const std::string &fileName, FileSeqType seq, bool isCheck) {
+    FileInfo snapShotFileInfo, fileInfo;
+    StatusCode ret =  GetSnapShotFileInfo(fileName, seq, &snapShotFileInfo, &fileInfo);
+    if (ret != StatusCode::kOK) {
+        LOG(INFO) << "fileName = " << fileName << ", seq = "<< seq
+                  << ", GetSnapShotFileInfo file, ret = " << ret;
+        return ret;
+    }
+    
+    if (isCheck) {
+        // Only when the snapshot was marked to be deleted and not referenced by any
+        // rollback file (i.e. not the recoversource of any clone file), it can be deleted.
+        if (snapShotFileInfo.filestatus() != FileStatus::kFileToBeDeleted) {
+            return StatusCode::kOK;
+        }
+        for (auto& clone:fileInfo.clones()) {
+            if (clone.recoversource() == seq) {
+                return StatusCode::kOK;
+            }
+        }
+    } else {
+        ret = CheckSnapshotCanDelete(fileName, snapShotFileInfo.filestatus());
+        if (ret != StatusCode::kOK) {
+            LOG(ERROR) << "cannot delete snapshot " << fileName 
+                    << ", seq = " << seq << ", ret = " << ret;
+            return ret;
+        }
+        // Only mark the snapshot as to be deleted . The deletion process starts once this
+        // snapshot is not the recoversource of any file (i.e. not referenced by rollback).
+        for (auto& clone:fileInfo.clones()) {
+            if (clone.recoversource() == seq) {
+                snapShotFileInfo.set_filestatus(FileStatus::kFileToBeDeleted);
+                ret = PutFile(snapShotFileInfo);
+                if (ret != StatusCode::kOK) {
+                    LOG(ERROR) << "fileName = " << fileName << ", seq = " << seq
+                            << ", PutFile error = " << ret;
+                    return StatusCode::kStorageError;
+                }
+                LOG(INFO) << "DeleteSnapshot fileName = " << fileName 
+                        << ", mark snap sn " << seq << " as to be deleted success" 
+                        << ", fileInfo = \n" << fileInfo.DebugString();
+                return StatusCode::kOK;
+            }
+        }
+    }
+    // the snapshot is not referenced by any rollbacked file, start the deletion job
+    return DeleteSnapshotInner(snapShotFileInfo, fileInfo);
+}
+
+StatusCode CurveFS::DeleteSnapshotInner(FileInfo &snapShotFileInfo, FileInfo &fileInfo) {
+    FileInfo hiddenFileInfo; // for rollback that may be deleted
+    bool deleteCloneWhenEmptySnaps = false;
+    auto seq = snapShotFileInfo.seqnum();
+    std::string fileName = fileInfo.filename();
+    snapShotFileInfo.set_filestatus(FileStatus::kFileDeleting);
+    auto cloneIter = fileInfo.mutable_clones()->begin();
+    for (; cloneIter != fileInfo.mutable_clones()->end(); ++cloneIter) {
+        if (seq < cloneIter->seqnum()) {
+            auto snaps = cloneIter->mutable_snaps();
+            auto findSnapIter = std::find(snaps->begin(), snaps->end(), seq);
+            if (findSnapIter == snaps->end()) {
+                LOG(WARNING) << "fileName = " << fileName << ", seq = " << seq 
+                             << ", not found in fileInfo!";
+            } else {
+                snaps->erase(findSnapIter);
+            }
+            // if this clone file has empty snaps and not the latest clone file, which
+            // also means it has been marked as to be deleted, it's time to delete it. 
+            if (snaps->empty() && cloneIter != fileInfo.mutable_clones()->end() - 1) {
+                // create an inner snapshot presenting this clone file soon to be deleted
+                InodeID inodeID;
+                if (InodeIDGenerator_->GenInodeID(&inodeID) != true) {
+                    LOG(ERROR) << fileName << ", DeleteFileSnapShotFile2 GenInodeID error";
+                    return StatusCode::kStorageError;
+                }
+                deleteCloneWhenEmptySnaps = true;
+                hiddenFileInfo = fileInfo;
+                hiddenFileInfo.set_filetype(FileType::INODE_SNAPSHOT_PAGEFILE);
+                hiddenFileInfo.set_id(inodeID);
+                hiddenFileInfo.set_ctime(::curve::common::TimeUtility::GetTimeofDayUs());
+                hiddenFileInfo.set_parentid(fileInfo.id());
+                // distinguish inner snapshot by "inner" contained in the name
+                hiddenFileInfo.set_filename(fileInfo.filename() + "-" +
+                        std::to_string(cloneIter->seqnum()) + "-inner");
+                hiddenFileInfo.set_seqnum(cloneIter->seqnum());
+                hiddenFileInfo.clear_clones();
+                auto fakeClone = hiddenFileInfo.add_clones();
+                fakeClone->CopyFrom(*cloneIter);
+                hiddenFileInfo.set_filestatus(FileStatus::kFileDeleting);
+                // update fileInfo
+                fileInfo.mutable_clones()->erase(cloneIter);
+            }
+
+            break;
+        }        
+    }
+    StatusCode ret;
+    if (deleteCloneWhenEmptySnaps) {
+        ret = SnapShotFile(&fileInfo, &snapShotFileInfo, &hiddenFileInfo);
+    } else {
+        ret = SnapShotFile(&fileInfo, &snapShotFileInfo);
+    }
+    if (ret != StatusCode::kOK) {
+        LOG(ERROR) << "fileName = " << fileName << ", seq = " << seq
+                   << ", SnapShotFile error = " << ret;
+        return StatusCode::kStorageError;
+    }
+    LOG(INFO) << "DoDeleteSnapshot update snap and file to storage success"
+              << ", snapInfo: \n" << snapShotFileInfo.DebugString()
+              << ", fileInfo: \n" << fileInfo.DebugString();
+    LOG_IF(INFO, deleteCloneWhenEmptySnaps)
+           << "DoDeleteSnapshot update deleting clone file to storage success"
+           << ", hiddenFileInfo: \n" << hiddenFileInfo.DebugString();
+
     if (!cleanManager_->SubmitDeleteBatchSnapShotFileJob(
-                        snapShotFileInfo, entity)) {
+                        snapShotFileInfo, nullptr)) {
         LOG(ERROR) << "fileName = " << fileName
-                << ", seq = " << seq
-                << ", Delete Task Deduplicated";
+                   << ", seq = " << seq
+                   << ", Delete Task Deduplicated";
         return StatusCode::KInternalError;
+    }
+    if (deleteCloneWhenEmptySnaps) {
+        if (!cleanManager_->SubmitDeleteBatchSnapShotFileJob(
+                            hiddenFileInfo, nullptr)) {
+            LOG(ERROR) << "fileName = " << fileName
+                       << ", seq = " << seq
+                       << ", Delete Task Deduplicated";
+            return StatusCode::KInternalError;
+        } 
+        // when a clone file is deleted, the recover source snapshot may have
+        // no dependency and can be deleted.
+        auto recoversource = hiddenFileInfo.clones().rbegin()->recoversource();
+        ret = DeleteSnapshot(fileName, recoversource, true);
+        if (ret != StatusCode::kOK) {
+            LOG(ERROR) << "fileName = " << fileName << ", seq = " << recoversource
+                       << ", recursion DeleteSnapshot error = " << ret;
+            return ret;
+        }
     }
     return StatusCode::kOK;
 }

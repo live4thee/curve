@@ -69,9 +69,10 @@ void SnapshotCloneServiceImpl::default_method(RpcController* cntl,
         done_guard.release();
         return;
     } else if (*action == kRecoverAction) {
-        HandleRecoverAction(bcntl, requestId, done);
-        done_guard.release();
-        return;
+        // HandleRecoverAction(bcntl, requestId, done);
+        // done_guard.release();
+
+        HandleRecoverFileAction(bcntl, requestId);
     } else if (*action == kGetCloneTasksAction) {
         HandleGetCloneTasksAction(bcntl, requestId);
     } else if (*action == kCleanCloneTaskAction) {
@@ -450,6 +451,61 @@ void SnapshotCloneServiceImpl::HandleRecoverAction(
     cloneManager_->RecoverFile(
     *source, *user, *destination, lazyFlag, closure, &taskId);
     done_guard.release();
+    return;
+}
+
+void SnapshotCloneServiceImpl::HandleRecoverFileAction(
+    brpc::Controller* bcntl,
+    const std::string &requestId) {
+    const std::string *version =
+        bcntl->http_request().uri().GetQuery(kVersionStr);
+    const std::string *user =
+        bcntl->http_request().uri().GetQuery(kUserStr);
+    const std::string *source =
+        bcntl->http_request().uri().GetQuery(kSourceStr);
+    const std::string *destination =
+        bcntl->http_request().uri().GetQuery(kDestinationStr);
+    if ((version == nullptr) ||
+        (user == nullptr) ||
+        (source == nullptr) ||
+        (version->empty()) ||
+        (user->empty()) ||
+        (source->empty())) {
+        HandleBadRequestError(bcntl, requestId);
+        LOG(INFO) << "SnapshotCloneServiceImpl Return : "
+                  << "action = Recover"
+                  << ", requestId = " << requestId
+                  << ", context = " << bcntl->response_attachment();
+        return;
+    }
+    std::string fileStr = "null";
+    std::string fileName = "";
+    if (destination != nullptr) {
+        fileStr = *destination;
+        fileName = *destination;
+    }
+    LOG(INFO) << "RecoverFile:"
+              << " Version = " << *version
+              << ", User = " << *user
+              << ", Source = " << *source
+              << ", Destination = " << fileStr
+              << ", requestId = " << requestId;
+
+    int ret = snapshotManager_->RecoverFile(*source, *user, fileName);
+    if (ret < 0) {
+        bcntl->http_response().set_status_code(
+            brpc::HTTP_STATUS_INTERNAL_SERVER_ERROR);
+        SetErrorMessage(bcntl, ret, requestId);
+        return;
+    }
+    bcntl->http_response().set_status_code(brpc::HTTP_STATUS_OK);
+    butil::IOBufBuilder os;
+    Json::Value mainObj;
+    mainObj[kCodeStr] = std::to_string(kErrCodeSuccess);
+    mainObj[kMessageStr] = code2Msg[kErrCodeSuccess];
+    mainObj[kRequestIdStr] = requestId;
+    os << mainObj.toStyledString();
+    os.move_to(bcntl->response_attachment());
     return;
 }
 

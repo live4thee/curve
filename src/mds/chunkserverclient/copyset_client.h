@@ -84,14 +84,14 @@ class CopysetClient {
      * @param copysetId
      * @param chunkId
      * @param snapSn the snapshot sequence that needs to be deleted
-     * @param snaps the existing snapshot sequence nums
+     * @param cloneFileInfos the existing structure about snapshots and rollbacks
      * @return error code
      */
     int DeleteChunkSnapshot(LogicalPoolID logicalPoolId,
         CopysetID copysetId,
         ChunkID chunkId,
         uint64_t snapSn,
-        const std::vector<uint64_t>& snaps);
+        const CloneFileInfos& cloneFileInfos);
 
     /**
      * @brief delete chunk files that are not snapshot files

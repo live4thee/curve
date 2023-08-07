@@ -96,7 +96,7 @@ int CopysetClient::DeleteChunkSnapshot(LogicalPoolID logicalPoolId,
     CopysetID copysetId,
     ChunkID chunkId,
     uint64_t snapSn,
-    const std::vector<uint64_t>& snaps) {
+    const CloneFileInfos& cloneFileInfos) {
     int ret = kMdsFail;
     CopySetInfo copyset;
     if (true != topo_->GetCopySet(
@@ -111,7 +111,7 @@ int CopysetClient::DeleteChunkSnapshot(LogicalPoolID logicalPoolId,
 
     if (leaderId != UNINTIALIZE_ID) {
         ret = chunkserverClient_->DeleteChunkSnapshot(
-            leaderId, logicalPoolId, copysetId, chunkId, snapSn, snaps);
+            leaderId, logicalPoolId, copysetId, chunkId, snapSn, cloneFileInfos);
         if (kMdsSuccess == ret) {
             return ret;
         }
@@ -138,7 +138,7 @@ int CopysetClient::DeleteChunkSnapshot(LogicalPoolID logicalPoolId,
 
         if (leaderId != UNINTIALIZE_ID) {
             ret = chunkserverClient_->DeleteChunkSnapshot(
-                leaderId, logicalPoolId, copysetId, chunkId, snapSn, snaps);
+                leaderId, logicalPoolId, copysetId, chunkId, snapSn, cloneFileInfos);
             if (kMdsSuccess == ret) {
                 break;
             }

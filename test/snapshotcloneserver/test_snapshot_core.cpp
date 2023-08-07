@@ -475,11 +475,12 @@ TEST_F(TestSnapshotCoreImpl,
         .Times(4)
         .WillRepeatedly(Return(kErrCodeSuccess));
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .Times(8)
         .WillRepeatedly(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -1124,10 +1125,11 @@ TEST_F(TestSnapshotCoreImpl,
         .Times(1)
         .WillRepeatedly(Return(kErrCodeSuccess));
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .WillOnce(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -1257,10 +1259,11 @@ TEST_F(TestSnapshotCoreImpl,
         .WillRepeatedly(Return(kErrCodeSuccess));
 
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .WillRepeatedly(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -1396,11 +1399,12 @@ TEST_F(TestSnapshotCoreImpl,
         .WillRepeatedly(Return(kErrCodeSuccess));
 
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .Times(2)
         .WillRepeatedly(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -1540,11 +1544,12 @@ TEST_F(TestSnapshotCoreImpl,
         .WillRepeatedly(Return(kErrCodeSuccess));
 
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .Times(8)
         .WillRepeatedly(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -1686,11 +1691,12 @@ TEST_F(TestSnapshotCoreImpl,
         .WillRepeatedly(Return(kErrCodeSuccess));
 
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .Times(8)
         .WillRepeatedly(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -1835,11 +1841,12 @@ TEST_F(TestSnapshotCoreImpl,
         .WillRepeatedly(Return(kErrCodeSuccess));
 
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .Times(8)
         .WillRepeatedly(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -1984,11 +1991,12 @@ TEST_F(TestSnapshotCoreImpl,
         .WillRepeatedly(Return(kErrCodeSuccess));
 
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .Times(8)
         .WillRepeatedly(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -2120,11 +2128,12 @@ TEST_F(TestSnapshotCoreImpl,
         .WillRepeatedly(Return(kErrCodeSuccess));
 
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .Times(8)
         .WillRepeatedly(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -2697,11 +2706,12 @@ TEST_F(TestSnapshotCoreImpl, TestHandleCreateSnapshotTaskCancelSuccess) {
         .WillRepeatedly(Return(kErrCodeSuccess));
 
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .Times(8)
         .WillRepeatedly(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -3029,11 +3039,12 @@ TEST_F(TestSnapshotCoreImpl,
         .WillRepeatedly(Return(kErrCodeSuccess));
 
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .Times(8)
         .WillRepeatedly(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -3188,11 +3199,12 @@ TEST_F(TestSnapshotCoreImpl,
         .WillRepeatedly(Return(kErrCodeSuccess));
 
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .Times(8)
         .WillRepeatedly(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -3352,11 +3364,12 @@ TEST_F(TestSnapshotCoreImpl,
         .WillRepeatedly(Return(kErrCodeSuccess));
 
 
-    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _))
+    EXPECT_CALL(*client_, ReadChunkSnapshot(_, _, _, _, _, _, _))
         .Times(8)
         .WillRepeatedly(DoAll(
                     Invoke([](ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,

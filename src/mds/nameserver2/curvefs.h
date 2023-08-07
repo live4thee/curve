@@ -172,10 +172,13 @@ class CurveFS {
      *  @param[in] deleteForce: whether to perform a force deletion. Deleted
      *                          files will be placed in recycle bin by default.
      *                          root user can prefer a force deletion.
+     *  @param[in] deleteSnaps: whether to delete file together with all existing
+     *                          snapshots, this can avoid unnecessary snapshot chunk
+     *                          deletion requests and chunk merging in chunkserver
      *  @return StatusCode::kOK if succeeded
      */
     StatusCode DeleteFile(const std::string & filename, uint64_t fileId,
-        bool deleteForce = false);
+        bool deleteForce = false, bool deleteSnaps = false);
 
     /**
      * @brief increase file epoch
@@ -307,6 +310,15 @@ class CurveFS {
     StatusCode DeleteFileSnapShotFile2(const std::string &fileName,
                             FileSeqType seq,
                             std::shared_ptr<AsyncDeleteSnapShotEntity> entity);
+
+    /**
+     *  @brief Recover the file to the snapshot file specified by seq. 
+     *  @param filename
+     *  @param seq: Seq of snapshot
+     *  @return StatusCode::kOK if succeeded
+     */
+    StatusCode RecoverFile2Snap(const std::string &fileName,
+                                FileSeqType seq);
 
     /**
      *  @brief Get the status of the snapshot, if the status is kFileDeleting
@@ -611,6 +623,17 @@ class CurveFS {
     StatusCode SnapShotFile(const FileInfo * originalFileInfo,
         const FileInfo * SnapShotFile) const;
 
+    /**
+     * @brief Execute a transaction of with fileinfo 、snapshot and inner snapshot
+     *        generated when a clone file is to be deleted
+     * @param originalFileInfo: fileInfo of the original file
+     * @param SnapShotFile: snapshot file info generated
+     * @param innerSnapshot: inner snapshot file info generated
+     * @return StatusCode: success or fail
+     */
+    StatusCode SnapShotFile(const FileInfo * originalFileInfo,
+        const FileInfo * SnapShotFile, const FileInfo * innerSnapshot) const;
+
     std::string GetRootOwner() {
         return rootAuthOptions_.rootOwner;
     }
@@ -671,6 +694,54 @@ class CurveFS {
      */
     StatusCode CheckFileCanChange(const std::string &fileName,
         const FileInfo &fileInfo);
+
+    /**
+     *  @brief check whether file can be deleted
+     *  @param: fileName: fileName to be deleted
+     *  @param: deleteSnaps: disallowed to delete file if false
+     *  @return: StatusCode::kOK if succeeded
+     */
+    StatusCode CheckFileCanDelete(const std::string &fileName,
+        bool deleteSnaps);
+
+    /**
+     *  @brief check whether file can be recovered to a snapshot
+     *  @param: fileName
+     *  @param: snapStatus: status of the snapshot to recover
+     *  @return: StatusCode::kOK if succeeded
+     */
+    StatusCode CheckFileCanRecover(const std::string &fileName, FileStatus snapStatus);
+
+    /**
+     *  @brief check whether snapshot can be deleted
+     *  @param: fileName
+     *  @param: snapStatus: status of the snapshot to delete
+     *  @return: StatusCode::kOK if succeeded
+     */
+    StatusCode CheckSnapshotCanDelete(const std::string &fileName, FileStatus snapStatus);
+
+    /**
+     *  @brief Delete a snapshot if satisfied, or execute a user issued snapshot deletion actively.
+     *  
+     *         When a clone file no longer exists, the snapshot this clone file
+     *         rollbacked from may need to be deleted. Furthermore, when a
+     *         snapshot is deleted, the clone file containing this snapshot may also
+     *         need to be deleted, which is a recursion process.
+     *  @param filename
+     *  @param seq: Seq of snapshot to check if need to delete
+     *  @param isCheck: if true, only delete when the snapshot can be deleted;
+     *                  if false, it's a user issued snapshot deletion job
+     *  @return StatusCode::kOK if succeeded
+     */
+    StatusCode DeleteSnapshot(const std::string &fileName, FileSeqType seq, bool isCheck);
+
+    /**
+     *  @brief Execute snapshot deletion job.
+     *  @param snapShotFileInfo: snapshot to be deleted
+     *  @param fileInfo: file info
+     *  @return StatusCode::kOK if succeeded
+     */
+    StatusCode DeleteSnapshotInner(FileInfo &snapShotFileInfo, FileInfo &fileInfo);
 
     /**
      *  @brief Get allocated size, for both directory and file

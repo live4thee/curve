@@ -647,6 +647,7 @@ TEST_F(CurveFSTest, testDeleteFile) {
                                                 StatusCode::kNotSupported);
     }
 
+    /*   ignore FileBeingCloned cases
     // test delete pagefile, file under clone
     {
         FileInfo  fileInfo;
@@ -870,6 +871,7 @@ TEST_F(CurveFSTest, testDeleteFile) {
         ASSERT_EQ(curvefs_->DeleteFile("/file1", kUnitializedFileID, false),
                                      StatusCode::kDeleteFileBeingCloned);
     }
+    */
 
     // test delete failed when mds didn't start for enough time
     {

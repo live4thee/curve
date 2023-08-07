@@ -133,7 +133,8 @@ void NameSpaceService::DeleteFile(::google::protobuf::RpcController* controller,
 
     LOG(INFO) << "logid = " << cntl->log_id()
         << ", DeleteFile request, filename = " << request->filename()
-        << " forDeleteFlag = " << request->forcedelete();
+        << " forDeleteFlag = " << request->forcedelete()
+        << " deleteSnapsFlag = " << request->deletesnaps();
 
     FileWriteLockGuard guard(fileLockManager_, request->filename());
 
@@ -165,13 +166,17 @@ void NameSpaceService::DeleteFile(::google::protobuf::RpcController* controller,
     if (request->has_forcedelete()) {
         forceDeleteFlag = request->forcedelete();
     }
+    bool deleteSnapsFlag = false;
+    if (request->has_deletesnaps()) {
+        deleteSnapsFlag = request->deletesnaps();
+    }
 
     uint64_t fileId = kUnitializedFileID;
     if (request->has_fileid()) {
         fileId = request->fileid();
     }
 
-    retCode = kCurveFS.DeleteFile(request->filename(), fileId, forceDeleteFlag);
+    retCode = kCurveFS.DeleteFile(request->filename(), fileId, forceDeleteFlag, deleteSnapsFlag);
     if (retCode != StatusCode::kOK)  {
         response->set_statuscode(retCode);
         if (google::ERROR != GetMdsLogLevel(retCode)) {
@@ -1044,6 +1049,81 @@ void NameSpaceService::DeleteSnapShot(
     return;
 }
 
+void NameSpaceService::RecoverFile(
+                    ::google::protobuf::RpcController* controller,
+                    const ::curve::mds::RecoverFileRequest* request,
+                    ::curve::mds::RecoverFileResponse* response,
+                    ::google::protobuf::Closure* done) {
+    brpc::ClosureGuard doneGuard(done);
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+    ExpiredTime expiredTime;
+
+    if (!isPathValid(request->filename())) {
+        response->set_statuscode(StatusCode::kParaError);
+        LOG(ERROR) << "logid = " << cntl->log_id()
+                << ", RecoverFile request path is invalid, filename = "
+                << request->filename()
+                << ", seq = " << request->seq();
+        return;
+    }
+
+    LOG(INFO) << "logid = " << cntl->log_id()
+              << ", RecoverFile request, filename = "
+              << request->filename()
+              << ", seq = " << request->seq();
+
+    FileWriteLockGuard guard(fileLockManager_, request->filename());
+
+    std::string signature;
+    if (request->has_signature()) {
+        signature = request->signature();
+    }
+
+    StatusCode retCode;
+    retCode = kCurveFS.CheckFileOwner(request->filename(), request->owner(),
+                                      signature, request->date());
+    if (retCode != StatusCode::kOK) {
+        response->set_statuscode(retCode);
+        if (google::ERROR != GetMdsLogLevel(retCode)) {
+            LOG(WARNING) << "logid = " << cntl->log_id()
+                << ", CheckFileOwner fail, filename = " <<  request->filename()
+                << ", owner = " << request->owner()
+                << ", statusCode = " << retCode;
+        } else {
+            LOG(ERROR) << "logid = " << cntl->log_id()
+                << ", CheckFileOwner fail, filename = " <<  request->filename()
+                << ", owner = " << request->owner()
+                << ", statusCode = " << retCode;
+        }
+        return;
+    }
+
+    retCode =  kCurveFS.RecoverFile2Snap(request->filename(),
+                                         request->seq());
+
+    if (retCode != StatusCode::kOK) {
+        response->set_statuscode(retCode);
+        if (google::ERROR != GetMdsLogLevel(retCode)) {
+            LOG(WARNING) << "logid = " << cntl->log_id()
+                         << ", RecoverFile fail, filename = "
+                         << request->filename() << ", seq = " << request->seq()
+                         << ", statusCode = " << retCode
+                         << ", StatusCode_Name = " << StatusCode_Name(retCode)
+                         << ", cost " << expiredTime.ExpiredMs() << " ms";
+        } else {
+            LOG(ERROR) << "logid = " << cntl->log_id()
+                       << ", RecoverFile fail, filename = "
+                       << request->filename() << ", seq = " << request->seq()
+                       << ", statusCode = " << retCode
+                       << ", StatusCode_Name = " << StatusCode_Name(retCode)
+                       << ", cost " << expiredTime.ExpiredMs() << " ms";
+        }
+        return;
+    }
+    response->set_statuscode(StatusCode::kOK);
+    return;
+}
+
 void NameSpaceService::CheckSnapShotStatus(
                     ::google::protobuf::RpcController* controller,
                     const ::curve::mds::CheckSnapShotStatusRequest* request,
@@ -1119,6 +1199,7 @@ void NameSpaceService::CheckSnapShotStatus(
         LOG(INFO) << "logid = " << cntl->log_id()
                   << ", CheckSnapShotFileStatus ok, filename = "
                   << request->filename() << ", seq = " << request->seq()
+                  << ", filestatus = " << static_cast<int>(fileStatus)
                   << ", statusCode = " << retCode << ", cost "
                   << expiredTime.ExpiredMs() << " ms";
     }

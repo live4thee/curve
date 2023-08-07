@@ -129,19 +129,20 @@ StatusCode CleanCore::CleanSnapShotFile2(const FileInfo & fileInfo,
         LogicalPoolID logicalPoolID = segment.logicalpoolid();
         uint32_t chunkNum = segment.chunks_size();
         for (uint32_t j = 0; j != chunkNum; j++) {
-            // 删除本地快照时，传入待删除的快照版本号和当前文件现存的所有快照版本号，
-            // 用于chunkserver进行快照数据的搬迁
+            // To delete a chunk snapshot and tell chunkserver how to merge data, 
+            // we need to set the existing snapshots prior to the snapshot to be deleted 
+            // within the clone file.
             SeqNum deleteSn = fileInfo.seqnum();
-            std::vector<SeqNum> snaps;
-            for (auto i = 0; i < fileInfo.snaps_size(); ++i) {
-                snaps.push_back(fileInfo.snaps(i));
-            }
+            CloneFileInfos infos;
+            // Actual clones_size is only one here
+            infos.set_seqnum(fileInfo.clones(fileInfo.clones_size() - 1).seqnum()); 
+            infos.mutable_clones()->CopyFrom(fileInfo.clones());
             int ret = copysetClient_->DeleteChunkSnapshot(
                 logicalPoolID,
                 segment.chunks()[j].copysetid(),
                 segment.chunks()[j].chunkid(),
                 deleteSn,
-                snaps);
+                infos);
             if (ret != 0) {
                 LOG(ERROR) << "CleanSnapShotFile2 Error: "
                     << "DeleteChunkSnapshot Error"
@@ -149,7 +150,7 @@ StatusCode CleanCore::CleanSnapShotFile2(const FileInfo & fileInfo,
                     << ", inodeid = " << fileInfo.id()
                     << ", filename = " << fileInfo.filename()
                     << ", snapSn = " << deleteSn
-                    << ", snaps = [" << Snaps2Str(snaps) << "]";
+                    << ", cloneFileInfos = \n" << infos.DebugString();
                 progress->SetStatus(TaskStatus::FAILED);
                 return StatusCode::kSnapshotFileDeleteError;
             }
@@ -163,14 +164,14 @@ StatusCode CleanCore::CleanSnapShotFile2(const FileInfo & fileInfo,
     // delete the storage
     StoreStatus ret =  storage_->DeleteSnapshotFile(fileInfo.parentid(),
                                                 fileInfo.filename());
-    if (ret != StoreStatus::OK) {
+    if (ret != StoreStatus::OK && ret != StoreStatus::KeyNotExist) {
         LOG(INFO) << "delete snapshotfile error, retCode = " << ret;
         progress->SetStatus(TaskStatus::FAILED);
         return StatusCode::kSnapshotFileDeleteError;
     } else {
         LOG(INFO) << "inodeid = " << fileInfo.id()
             << ", filename = " << fileInfo.filename()
-            << ", seq = " << fileInfo.seqnum() << ", deleted";
+            << ", seq = " << fileInfo.seqnum() << ", deleted ret = " << ret;
     }
 
     progress->SetProgress(100);
@@ -240,6 +241,32 @@ StatusCode CleanCore::CleanFile(const FileInfo & commonFile,
         allocStatistic_->DeAllocSpace(segment.logicalpoolid(),
             segment.segmentsize(), revision);
         progress->SetProgress(100 * (i + 1) / segmentNum);
+    }
+
+    // if the file was deleted with existing snapshot, it's time to safely clean 
+    // those snapshot records from metaStore. The snapshot chunks are already cleaned above
+    std::vector<FileInfo> snapshotFileInfos;
+    StoreStatus storeStatus =  storage_->ListSnapshotFile(commonFile.id(),
+                                      commonFile.id() + 1,
+                                      &snapshotFileInfos);
+    if (storeStatus != StoreStatus::KeyNotExist &&
+        storeStatus != StoreStatus::OK) {
+        LOG(ERROR) << commonFile.filename() << ", storage ListSnapshotFile return = " << storeStatus;
+        return StatusCode::kStorageError;
+    }
+
+    for (auto& fileInfo:snapshotFileInfos) {
+        StoreStatus ret =  storage_->DeleteSnapshotFile(fileInfo.parentid(),
+                                                    fileInfo.filename());
+        if (ret != StoreStatus::OK && ret != StoreStatus::KeyNotExist) {
+            LOG(INFO) << "delete snapshotfile error, retCode = " << ret;
+            progress->SetStatus(TaskStatus::FAILED);
+            return StatusCode::kSnapshotFileDeleteError;
+        } else {
+            LOG(INFO) << "inodeid = " << fileInfo.id()
+                << ", filename = " << fileInfo.filename()
+                << ", seq = " << fileInfo.seqnum() << ", deleted ret = " << ret;
+        }
     }
 
     // delete the storage

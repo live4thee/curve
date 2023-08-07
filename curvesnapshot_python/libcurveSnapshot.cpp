@@ -190,6 +190,18 @@ int DeleteSnapShot(const char* filename,
                                 seq.value);
 }
 
+int RecoverFile(const char* filename,
+                const CUserInfo_t userinfo,
+                type_uInt64_t seq) {
+    if (globalSnapshotclient == nullptr) {
+        LOG(ERROR) << "not init!";
+        return -LIBCURVE_ERROR::FAILED;
+    }
+    return globalSnapshotclient->RecoverFile(filename,
+                                UserInfo(userinfo.owner, userinfo.password),
+                                seq.value);
+}
+
 int GetSnapShot(const char* filename, const CUserInfo_t userinfo,
                 type_uInt64_t seq, CFInfo_t* snapinfo) {
     if (globalSnapshotclient == nullptr) {

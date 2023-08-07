@@ -169,6 +169,7 @@ int TransferSnapshotDataChunkTask::StartAsyncReadChunkSnapshot(
     int ret = client_->ReadChunkSnapshot(
         context->cidInfo,
         context->seqNum,
+        {},
         offset,
         context->len,
         context->buf.get(),

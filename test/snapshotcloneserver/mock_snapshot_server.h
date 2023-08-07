@@ -65,6 +65,15 @@ class MockSnapshotCore : public SnapshotCore {
     MOCK_METHOD1(HandleCreateSyncSnapshotTask,
         int(std::shared_ptr<SnapshotTaskInfo> task));
 
+    MOCK_METHOD4(RecoverFilePre,
+        int(const UUID &source,
+        const std::string &user,
+        const std::string &fileName,
+        SnapshotInfo *snapInfo));
+
+    MOCK_METHOD1(HandleRecoverFile,
+        int(const SnapshotInfo &snapInfo));
+
     MOCK_METHOD4(DeleteSnapshotPre,
         int(UUID uuid,
         const std::string &user,
@@ -179,6 +188,10 @@ class MockCurveFsClient : public CurveFsClient {
         int(const std::string &filename,
             const std::string &user,
             uint64_t seq));
+    MOCK_METHOD3(RecoverFile,
+        int(const std::string &filename,
+            const std::string &user,
+            uint64_t seq));
     MOCK_METHOD4(GetSnapshot,
         int(const std::string &filename,
             const std::string &user,
@@ -190,9 +203,10 @@ class MockCurveFsClient : public CurveFsClient {
         uint64_t seq,
         uint64_t offset,
         SegmentInfo *segInfo));
-    MOCK_METHOD6(ReadChunkSnapshot,
+    MOCK_METHOD7(ReadChunkSnapshot,
         int(ChunkIDInfo cidinfo,
             uint64_t seq,
+            const CloneFileInfos& cloneFileInfos,
             uint64_t offset,
             uint64_t len,
             char *buf,
@@ -304,6 +318,16 @@ class MockSnapshotServiceManager : public SnapshotServiceManager {
         int(const UUID &uuid,
         const std::string &user,
         const std::string &file));
+
+    MOCK_METHOD3(DeleteSyncSnapshot,
+        int(const UUID &uuid,
+        const std::string &user,
+        const std::string &file));
+
+    MOCK_METHOD3(RecoverFile,
+        int(const UUID &source,
+        const std::string &user,
+        const std::string &destination));
 
     MOCK_METHOD3(GetFileSnapshotInfo,
         int(const std::string &file,

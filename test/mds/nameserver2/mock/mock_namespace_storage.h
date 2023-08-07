@@ -80,6 +80,8 @@ class MockNameServerStorage : public NameServerStorage {
 
     MOCK_METHOD2(SnapShotFile, StoreStatus(const FileInfo *,
                                     const FileInfo *));
+    MOCK_METHOD3(SnapShotFile, StoreStatus(const FileInfo *,const FileInfo *,
+                                    const FileInfo *));
     MOCK_METHOD1(LoadSnapShotFile,
         StoreStatus(std::vector<FileInfo> *snapShotFiles));
     MOCK_METHOD2(ListSegment,

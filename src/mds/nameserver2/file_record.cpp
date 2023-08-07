@@ -138,6 +138,13 @@ void FileRecordManager::RemoveFileRecord(const std::string& filename,
     }
 
     it->second.erase(ep);
+    // remove the file record immediately
+    if (it->second.empty()) {
+        fileRecords_.erase(it);
+        LOG(INFO) << "Remove file record success, filename = " << it->first;
+    } else {
+        LOG(INFO) << "Remain client mounting num = " << it->second.size() << ", filename = " << it->first;
+    }
 }
 
 void FileRecordManager::Scan() {

@@ -1049,8 +1049,9 @@ TEST_F(TestSnapshotServiceManager, TestRecoverSnapshotTaskFail) {
     ASSERT_EQ(kErrCodeInternalError, ret);
 }
 
+// 同步快照不再排队，屏蔽该case
 TEST_F(TestSnapshotServiceManager,
-    TestCancelSnapshotSuccess) {
+    DISABLED_TestCancelSnapshotSuccess) {
     const std::string file = "file1";
     const std::string user = "user1";
     const std::string desc = "snap1";

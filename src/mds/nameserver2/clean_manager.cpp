@@ -62,6 +62,12 @@ bool CleanManager::SubmitDeleteBatchSnapShotFileJob(const FileInfo &snapfileInfo
 }
 
 bool CleanManager::SubmitDeleteCommonFileJob(const FileInfo &fileInfo) {
+    // Since deleting file also means deleting all snapshots of the file, so 
+    // before putting file clean task, we can cancel all unnecessary snapshot
+    // deleting task of this file, and remove all snapshot from metaStore no matter 
+    // what status the snapshot is (i.e. kFileCreated/kFileDeleting/kFileToBeDeleted).
+    // Chunkservers take charge of clean all snapshot chunks of the file.
+    // TODO(zzw):
     auto taskID = static_cast<TaskIDType>(fileInfo.id());
     auto commonFileCleanTask =
         std::make_shared<CommonFileCleanTask>(taskID, cleanCore_,

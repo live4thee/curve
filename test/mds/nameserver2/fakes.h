@@ -393,6 +393,33 @@ class FakeNameServerStorage : public NameServerStorage {
         return StoreStatus::OK;
     }
 
+    StoreStatus SnapShotFile(const FileInfo *originalFileInfo,
+                            const FileInfo * snapshotFileInfo,
+                            const FileInfo *innerSnapshotFInfo) override {
+        std::lock_guard<std::mutex> guard(lock_);
+        auto originalFileKey = NameSpaceStorageCodec::EncodeFileStoreKey(
+                                            originalFileInfo->parentid(),
+                                            originalFileInfo->filename());
+        auto snapshotFileKey = NameSpaceStorageCodec::EncodeSnapShotFileStoreKey(   // NOLINT
+                                            snapshotFileInfo->parentid(),
+                                            snapshotFileInfo->filename());
+        auto innersnapshotFileKey = NameSpaceStorageCodec::EncodeSnapShotFileStoreKey(   // NOLINT
+                                            innerSnapshotFInfo->parentid(),
+                                            innerSnapshotFInfo->filename());
+
+        std::string originalFileData = originalFileInfo->SerializeAsString();
+        std::string snapshotFileData = snapshotFileInfo->SerializeAsString();
+        std::string innersnapshotFileData = innerSnapshotFInfo->SerializeAsString();
+        memKvMap_.erase(originalFileKey);
+        memKvMap_.insert(std::move(std::pair<std::string, std::string>
+            (originalFileKey, std::move(originalFileData))));
+        memKvMap_.insert(std::move(std::pair<std::string, std::string>
+            (snapshotFileKey, std::move(snapshotFileData))));
+        memKvMap_.insert(std::move(std::pair<std::string, std::string>
+            (innersnapshotFileKey, std::move(innersnapshotFileData))));
+        return StoreStatus::OK;
+    }
+
     StoreStatus LoadSnapShotFile(std::vector<FileInfo> *snapShotFiles)
     override {
         std::lock_guard<std::mutex> guard(lock_);

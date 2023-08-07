@@ -51,6 +51,8 @@ using ::curve::client::SnapCloneClosure;
 using ::curve::client::UserInfo;
 using ::curve::client::SnapshotClient;
 using ::curve::client::FileClient;
+using ::curve::client::CloneFileInfo;
+using ::curve::client::CloneFileInfos;
 
 namespace curve {
 namespace snapshotcloneserver {
@@ -135,6 +137,19 @@ class CurveFsClient {
         uint64_t seq) = 0;
 
     /**
+     * @brief 将文件恢复到快照
+     *
+     * @param filename 文件名
+     * @param user 用户信息
+     * @param seq 快照版本号
+     *
+     * @return 错误码
+     */
+    virtual int RecoverFile(const std::string &filename,
+        const std::string &user,
+        uint64_t seq) = 0;
+
+    /**
      * @brief 获取快照文件信息
      *
      * @param filename 文件名
@@ -170,6 +185,7 @@ class CurveFsClient {
      *
      * @param cidinfo chunk ID 信息
      * @param seq 快照版本号
+     * @param cloneFileInfos 快照回滚相关信息
      * @param offset 偏移值
      * @param len 长度
      * @param[out] buf buffer指针
@@ -179,6 +195,7 @@ class CurveFsClient {
      */
     virtual int ReadChunkSnapshot(ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
@@ -425,6 +442,10 @@ class CurveFsClientImpl : public CurveFsClient {
         const std::string &user,
         uint64_t seq) override;
 
+    int RecoverFile(const std::string &filename,
+        const std::string &user,
+        uint64_t seq) override;
+
     int GetSnapshot(const std::string &filename,
         const std::string &user,
         uint64_t seq,
@@ -438,6 +459,7 @@ class CurveFsClientImpl : public CurveFsClient {
 
     int ReadChunkSnapshot(ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,

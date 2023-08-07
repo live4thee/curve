@@ -59,6 +59,10 @@ class FakeCurveFsClient : public CurveFsClient {
         const std::string &user,
         uint64_t seq) override;
 
+    int RecoverFile(const std::string &filename,
+        const std::string &user,
+        uint64_t seq) override;
+
     int GetSnapshot(const std::string &filename,
         const std::string &user,
         uint64_t seq,
@@ -72,6 +76,7 @@ class FakeCurveFsClient : public CurveFsClient {
 
     int ReadChunkSnapshot(ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,

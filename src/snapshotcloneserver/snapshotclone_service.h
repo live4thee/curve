@@ -82,6 +82,9 @@ class SnapshotCloneServiceImpl : public SnapshotCloneService {
     void HandleRecoverAction(brpc::Controller* bcntl,
         const std::string &requestId,
         Closure* done);
+    // this action is the instant rollback of local snapshot
+    void HandleRecoverFileAction(brpc::Controller* bcntl,
+        const std::string &requestId);
     void HandleFlattenAction(brpc::Controller* bcntl,
         const std::string &requestId);
     void HandleGetCloneTasksAction(brpc::Controller* bcntl,

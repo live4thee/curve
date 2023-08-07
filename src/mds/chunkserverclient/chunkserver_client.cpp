@@ -146,7 +146,7 @@ int ChunkServerClient::DeleteChunkSnapshot(
     CopysetID copysetId,
     ChunkID chunkId,
     uint64_t snapSn,
-    const std::vector<uint64_t>& snaps) {
+    const CloneFileInfos& cloneFileInfos) {
     ChannelPtr channelPtr;
     int res = GetOrInitChannel(leaderId, &channelPtr);
     if (res != kMdsSuccess) {
@@ -163,9 +163,7 @@ int ChunkServerClient::DeleteChunkSnapshot(
     request.set_copysetid(copysetId);
     request.set_chunkid(chunkId);
     request.set_snapsn(snapSn);
-    for (auto snap: snaps) {
-        request.add_snaps(snap);
-    }
+    request.mutable_clonefileinfos()->CopyFrom(cloneFileInfos);
 
     ChunkResponse response;
     uint32_t retry = 0;

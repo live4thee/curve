@@ -128,7 +128,31 @@ class SnapshotCore {
      */
     virtual int HandleCreateSyncSnapshotTask(
         std::shared_ptr<SnapshotTaskInfo> task) = 0;
-        
+
+    /**
+     * @brief 快照恢复前置操作
+     *
+     * @param source  快照的uuid
+     * @param user  文件的用户
+     * @param fileName 文件名
+     * @param[out] snapInfo 快照信息
+     *
+     * @return 错误码
+     */
+    virtual int RecoverFilePre(const UUID &source,
+        const std::string &user,
+        const std::string &fileName,
+        SnapshotInfo *snapInfo) = 0;
+
+    /**
+     * @brief 同步执行快照即时恢复操作
+     *
+     * @param snapInfo 快照信息
+     *
+     * @return 错误码
+     */
+    virtual int HandleRecoverFile(
+        const SnapshotInfo &snapInfo) = 0;
 
     /**
      * @brief 删除快照前置操作
@@ -273,6 +297,13 @@ class SnapshotCoreImpl : public SnapshotCore {
     int HandleCreateSyncSnapshotTask(
         std::shared_ptr<SnapshotTaskInfo> task) override;
 
+    virtual int RecoverFilePre(const UUID &source,
+        const std::string &user,
+        const std::string &fileName,
+        SnapshotInfo *snapInfo) override;
+
+    virtual int HandleRecoverFile(const SnapshotInfo &snapInfo) override;
+
     int DeleteSnapshotPre(UUID uuid,
         const std::string &user,
         const std::string &fileName,
@@ -352,6 +383,15 @@ class SnapshotCoreImpl : public SnapshotCore {
      * @return 错误码
      */
     int DeleteSnapshotOnCurvefs(const SnapshotInfo &info, std::shared_ptr<SnapshotTaskInfo> task = nullptr);
+
+    /**
+     * @brief 将curvefs上的文件恢复到快照
+     *
+     * @param info 快照信息
+     * 
+     * @return 错误码
+     */
+    int RecoverFileOnCurvefs(const SnapshotInfo &info);
 
     /**
      * @brief 构建索引块

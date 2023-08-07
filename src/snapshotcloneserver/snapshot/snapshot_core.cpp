@@ -130,7 +130,6 @@ int SnapshotCoreImpl::CreateSyncSnapshotPre(const std::string &file,
     const std::string &user,
     const std::string &snapshotName,
     SnapshotInfo *snapInfo) {
-    NameLockGuard lockGuard(snapshotNameLock_, file);
     std::vector<SnapshotInfo> fileInfo;
     metaStore_->GetSnapshotList(file, &fileInfo);
     for (auto& snap : fileInfo) {
@@ -714,7 +713,8 @@ int SnapshotCoreImpl::DeleteSnapshotOnCurvefs(const SnapshotInfo &info, std::sha
         seqNum);
     if (ret != LIBCURVE_ERROR::OK &&
         ret != -LIBCURVE_ERROR::NOTEXIST &&
-        ret != -LIBCURVE_ERROR::DELETING) {
+        ret != -LIBCURVE_ERROR::DELETING &&
+        ret != -LIBCURVE_ERROR::TO_BE_DELETED) {
         LOG(ERROR) << "DeleteSnapshot error, "
                    << " ret = " << ret
                    << ", fileName = " << fileName
@@ -744,6 +744,14 @@ int SnapshotCoreImpl::DeleteSnapshotOnCurvefs(const SnapshotInfo &info, std::sha
                       << ", uuid = " << info.GetUuid();
             break;
         } else if (LIBCURVE_ERROR::OK == ret) {
+            if (status == FileStatus::ToBeDeleted) {
+                LOG(INFO) << "CheckSnapShotStatus fileName = " << info.GetFileName()
+                          << ", seqNum = " << seqNum
+                          << ", status = " << static_cast<int>(status)
+                          << ", uuid = " << info.GetUuid() 
+                          << ", is recover source and to be deleted";
+                break; 
+            }
             if (status != FileStatus::Deleting) {
                 LOG(ERROR) << "CheckSnapShotStatus fail"
                            << ", ret = " << ret
@@ -763,6 +771,27 @@ int SnapshotCoreImpl::DeleteSnapshotOnCurvefs(const SnapshotInfo &info, std::sha
             std::chrono::milliseconds(checkSnapshotStatusIntervalMs_));
     } while (LIBCURVE_ERROR::OK == ret);
     return kErrCodeSuccess;
+}
+
+int SnapshotCoreImpl::RecoverFileOnCurvefs(const SnapshotInfo &info) {
+    std::string fileName = info.GetFileName();
+    std::string user = info.GetUser();
+    uint64_t seqNum = info.GetSeqNum();
+    // it's not idempotent to recover file since the file can be 
+    // recovered to a snapshot multiple times. 
+    int ret = client_->RecoverFile(fileName,
+        user,
+        seqNum);
+    if (ret != LIBCURVE_ERROR::OK) {
+        LOG(ERROR) << "RecoverFile error, "
+                   << " ret = " << ret
+                   << ", fileName = " << fileName
+                   << ", user = " << user
+                   << ", seqNum = " << seqNum
+                   << ", uuid = " << info.GetUuid();
+        return kErrCodeInternalError;
+    }
+    return kErrCodeSuccess;    
 }
 
 int SnapshotCoreImpl::BuildChunkIndexData(
@@ -1290,12 +1319,13 @@ void SnapshotCoreImpl::HandleDeleteSyncSnapshotTask(
     ret = DeleteSnapshotOnCurvefs(info, task);
     if (ret < 0) {
         LOG(ERROR) << "DeleteSnapshotOnCurvefs fail"
+                   << " ret = " << ret
                     << ", uuid = " << task->GetUuid();
         HandleDeleteSnapshotError(task);
         return;
     }
 
-    task->UpdateMetric(); // ?
+    task->UpdateMetric();
     ret = metaStore_->DeleteSnapshot(uuid);
     if (ret < 0) {
         LOG(ERROR) << "DeleteSnapshot error, "
@@ -1423,6 +1453,45 @@ int SnapshotCoreImpl::HandleCancelScheduledSnapshotTask(
     }
 
     return ret;
+}
+
+int SnapshotCoreImpl::RecoverFilePre(const UUID &source,
+    const std::string &user,
+    const std::string &fileName,
+    SnapshotInfo *snapInfo) {
+    NameLockGuard lockSnapGuard(snapshotRef_->GetSnapshotLock(), source);
+    int ret = metaStore_->GetSnapshotInfo(source, snapInfo);
+    if (ret < 0) {
+        return kErrCodeFileNotExist;
+    }
+
+    if ((!fileName.empty()) &&
+        (fileName != snapInfo->GetFileName())) {
+        LOG(ERROR) << "Can not recover, fileName is not matched"
+                   << ", filename = " << fileName
+                   << ", snapshot.filename = " << snapInfo->GetFileName();
+        return kErrCodeFileNameNotMatch;
+    }    
+    if (snapInfo->GetStatus() != Status::done) {
+        LOG(ERROR) << "Can not recover by snapshot with status:"
+                   << static_cast<int>(snapInfo->GetStatus())
+                   << ", source = " << source
+                   << ", filename = " << snapInfo->GetFileName();
+        return kErrCodeInvalidSnapshot;        
+    }
+    if (snapInfo->GetUser() != user) {
+        LOG(ERROR) << "Can not recover by invalid user " << user
+                   << ", source = " << source
+                   << ", filename = " << snapInfo->GetFileName()
+                   << ", snapshot.user = " << snapInfo->GetUser();
+        return kErrCodeInvalidUser;
+    }
+
+    return kErrCodeSuccess;    
+}
+
+int SnapshotCoreImpl::HandleRecoverFile(const SnapshotInfo &snapInfo) {
+    return RecoverFileOnCurvefs(snapInfo);
 }
 
 }  // namespace snapshotcloneserver

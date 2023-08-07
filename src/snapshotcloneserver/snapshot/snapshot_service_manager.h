@@ -34,6 +34,7 @@
 #include "src/snapshotcloneserver/common/config.h"
 #include "json/json.h"
 
+using ::curve::common::NameLock;
 namespace curve {
 namespace snapshotcloneserver {
 
@@ -241,6 +242,19 @@ class SnapshotServiceManager {
         const std::string &file);
 
     /**
+     * @brief 将文件恢复到某个快照
+     *
+     * @param source  快照的uuid
+     * @param user  文件的用户
+     * @param file 文件名
+     *
+     * @return 错误码
+     */
+    virtual int RecoverFile(const UUID &source,
+        const std::string &user,
+        const std::string &file);
+
+    /**
      * @brief 取消快照服务
      *
      * @param uuid 快照的uuid
@@ -333,6 +347,8 @@ class SnapshotServiceManager {
     std::shared_ptr<SnapshotTaskManager> taskMgr_;
     // 快照核心模块
     std::shared_ptr<SnapshotCore> core_;
+    // 锁住文件防止同时打同步快照
+    NameLock fileNameLock_;
 };
 
 }  // namespace snapshotcloneserver

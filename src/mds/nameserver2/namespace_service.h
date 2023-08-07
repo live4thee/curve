@@ -128,6 +128,10 @@ class NameSpaceService: public CurveFSService {
                        const ::curve::mds::DeleteSnapShotRequest* request,
                        ::curve::mds::DeleteSnapShotResponse* response,
                        ::google::protobuf::Closure* done) override;
+    void RecoverFile(::google::protobuf::RpcController* controller,
+                       const ::curve::mds::RecoverFileRequest* request,
+                       ::curve::mds::RecoverFileResponse* response,
+                       ::google::protobuf::Closure* done) override;
     void CheckSnapShotStatus(::google::protobuf::RpcController* controller,
                        const ::curve::mds::CheckSnapShotStatusRequest* request,
                        ::curve::mds::CheckSnapShotStatusResponse* response,

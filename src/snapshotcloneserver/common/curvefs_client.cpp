@@ -76,7 +76,26 @@ int CurveFsClientImpl::DeleteSnapshot(const std::string &filename,
     RetryCondition condition = [] (int ret) {
         return ret != LIBCURVE_ERROR::OK &&
         ret != -LIBCURVE_ERROR::NOTEXIST &&
-        ret != -LIBCURVE_ERROR::DELETING;
+        ret != -LIBCURVE_ERROR::DELETING &&
+        ret != -LIBCURVE_ERROR::TO_BE_DELETED;
+    };
+    RetryHelper retryHelper(method, condition);
+    return retryHelper.RetryTimeSecAndReturn(clientMethodRetryTimeSec_,
+        clientMethodRetryIntervalMs_);
+}
+
+int CurveFsClientImpl::RecoverFile(const std::string &filename,
+    const std::string &user,
+    uint64_t seq) {
+    UserInfo userInfo = GetUserInfo(user);
+    RetryMethod method = [this, &filename, &userInfo, seq] () {
+            return snapClient_->RecoverFile(filename, userInfo, seq);
+        };
+    RetryCondition condition = [] (int ret) {
+        return ret != LIBCURVE_ERROR::OK &&
+        ret != -LIBCURVE_ERROR::NOTEXIST &&
+        ret != -LIBCURVE_ERROR::DELETING &&
+        ret != -LIBCURVE_ERROR::TO_BE_DELETED;
     };
     RetryHelper retryHelper(method, condition);
     return retryHelper.RetryTimeSecAndReturn(clientMethodRetryTimeSec_,
@@ -123,13 +142,14 @@ int CurveFsClientImpl::GetSnapshotSegmentInfo(const std::string &filename,
 
 int CurveFsClientImpl::ReadChunkSnapshot(ChunkIDInfo cidinfo,
                         uint64_t seq,
+                        const CloneFileInfos& cloneFileInfos,
                         uint64_t offset,
                         uint64_t len,
                         char *buf,
                         SnapCloneClosure* scc) {
-    RetryMethod method = [this, &cidinfo, seq, offset, len, buf, scc] () {
+    RetryMethod method = [this, &cidinfo, seq, cloneFileInfos, offset, len, buf, scc] () {
         return snapClient_->ReadChunkSnapshot(
-            cidinfo, seq, {seq}, offset, len, buf, scc);
+            cidinfo, seq, cloneFileInfos, offset, len, buf, scc);
     };
     RetryCondition condition = [] (int ret) {
         return ret < 0;

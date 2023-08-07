@@ -33,12 +33,15 @@
 #include "src/mds/topology/topology.h"
 #include "proto/cli2.pb.h"
 #include "proto/chunk.pb.h"
+#include "proto/common.pb.h"
 #include "src/mds/chunkserverclient/chunkserverclient_config.h"
 #include "src/common/channel_pool.h"
 
 using ::curve::mds::topology::Topology;
 using ::curve::mds::topology::ChunkServerIdType;
 using ::curve::common::ChannelPool;
+using ::curve::common::CloneFileInfo;
+using ::curve::common::CloneFileInfos;
 
 namespace curve {
 namespace mds {
@@ -84,7 +87,7 @@ class ChunkServerClient {
      * @param copysetId
      * @param chunkId
      * @param snapSn the snapshot sequence that needs to be deleted
-     * @param snaps the existing snapshot sequence nums
+     * @param cloneFileInfos the existing structure about snapshots and rollbacks
      * @return error code
      */
     virtual int DeleteChunkSnapshot(ChunkServerIdType leaderId,
@@ -92,7 +95,7 @@ class ChunkServerClient {
         CopysetID copysetId,
         ChunkID chunkId,
         uint64_t snapSn,
-        const std::vector<uint64_t>& snaps);
+        const CloneFileInfos& cloneFileInfos);
 
     /**
      * @brief delete chunk files that are not snapshot

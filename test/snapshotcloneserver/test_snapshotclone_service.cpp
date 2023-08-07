@@ -128,7 +128,7 @@ TEST_F(TestSnapshotCloneServiceImpl, TestDeleteSnapShotSuccess) {
     std::string user = "test";
     std::string file = "test";
 
-    EXPECT_CALL(*snapshotManager_, DeleteSnapshot(uuid, user, file))
+    EXPECT_CALL(*snapshotManager_, DeleteSyncSnapshot(uuid, user, file))
         .WillOnce(Return(kErrCodeSuccess));
 
     brpc::Channel channel;
@@ -712,7 +712,7 @@ TEST_F(TestSnapshotCloneServiceImpl, TestDeleteSnapShotFail) {
     std::string user = "test";
     std::string file = "test";
 
-    EXPECT_CALL(*snapshotManager_, DeleteSnapshot(uuid, user, file))
+    EXPECT_CALL(*snapshotManager_, DeleteSyncSnapshot(uuid, user, file))
         .WillOnce(Return(kErrCodeInternalError));
 
     brpc::Channel channel;
@@ -938,15 +938,11 @@ TEST_F(TestSnapshotCloneServiceImpl, TestRecoverFileSuccess) {
     std::string destination = "file1";
     bool lazyFlag = false;
 
-    EXPECT_CALL(*cloneManager_, RecoverFile(
-        source, user, destination, lazyFlag, _, _))
+    EXPECT_CALL(*snapshotManager_, RecoverFile(
+        source, user, destination))
         .WillOnce(Invoke([](const UUID &source,
         const std::string &user,
-        const std::string &destination,
-        bool lazyFlag,
-        std::shared_ptr<CloneClosure> closure,
-        TaskIdType *taskId){
-            brpc::ClosureGuard guard(closure.get());
+        const std::string &destination){
             return kErrCodeSuccess;
                     }));
 
@@ -1392,15 +1388,11 @@ TEST_F(TestSnapshotCloneServiceImpl, TestRecoverFileFail) {
     std::string destination = "file1";
     bool lazyFlag = false;
 
-    EXPECT_CALL(*cloneManager_, RecoverFile(
-        source, user, destination, lazyFlag, _, _))
+    EXPECT_CALL(*snapshotManager_, RecoverFile(
+        source, user, destination))
         .WillOnce(Invoke([](const UUID &source,
         const std::string &user,
-        const std::string &destination,
-        bool lazyFlag,
-        std::shared_ptr<CloneClosure> closure,
-        TaskIdType *taskId){
-            brpc::ClosureGuard guard(closure.get());
+        const std::string &destination){
             return kErrCodeInternalError;
                     }));
 

@@ -133,6 +133,16 @@ int DeleteSnapShot(const char* filename,
                    const CUserInfo_t userinfo,
                    type_uInt64_t seq);
 /**
+ * 将文件恢复到版本号为seq的快照
+ * @param: filename是要恢复的文件名
+ * @param: userinfo是用户信息
+ * @param: seq是快照的版本号
+ * @return: 成功返回LIBCURVE_ERROR::OK,否则LIBCURVE_ERROR::FAILED
+ */
+int RecoverFile(const char* filename,
+                   const CUserInfo_t userinfo,
+                   type_uInt64_t seq);
+/**
  * 获取快照对应的文件信息
  * @param: userinfo是用户信息
  * @param: filename为对应的文件名

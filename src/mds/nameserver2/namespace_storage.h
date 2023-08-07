@@ -233,6 +233,20 @@ class NameServerStorage {
                                     const FileInfo *snapshotFileInfo) = 0;
 
     /**
+     * @brief SnapShotFile: Transaction for storing metadata of snapshotFile and inner snapshotFile
+     *                      and update source file metadata
+     *
+     * @param[in] originalFileInfo: Metadata of the source file to take snapshot
+     * @param[in] snapshotFileInfo: Metadata of the snapshot file
+     * @param[in] innerSnapshotFInfo: Metadata of the inner snapshot file
+     *
+     * @return StoreStatus: error code
+     */
+    virtual StoreStatus SnapShotFile(const FileInfo *originalFileInfo,
+                                    const FileInfo *snapshotFileInfo,
+                                    const FileInfo *innerSnapshotFInfo) = 0;
+
+    /**
      * @brief LoadSnapShotFile: Load all snapshotFile metadata
      *
      * @param[out] snapshotFiles: Snapshot metadata list
@@ -297,6 +311,10 @@ class NameServerStorageImp : public NameServerStorage {
 
     StoreStatus SnapShotFile(const FileInfo *originalFileInfo,
                             const FileInfo * snapshotFileInfo) override;
+
+    StoreStatus SnapShotFile(const FileInfo *originalFileInfo,
+                            const FileInfo * snapshotFileInfo,
+                            const FileInfo * innerSnapshotFInfo) override;    
 
     StoreStatus LoadSnapShotFile(std::vector<FileInfo> *snapShotFiles) override;
 

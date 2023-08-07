@@ -159,8 +159,9 @@ class SnapShotCleanTask2: public Task {
         mdsSessionTimeUs_ = mdsSessionTimeUs;
     }
     void Run(void) override {
-        // 删除快照需等待2个session时间，以保证seq同步到所有client，否则client历史
-        // 的seq下发到chunkserver可能导致已删除的chunk snapshot再次COW生成而遗留。
+        // Wait 2*mdsSessionTime to ensure all clients synchronize with the sequence num,
+        // or else the previous chunk request after this snapshot deletion request may result 
+        // remaining COW chunk.
         {
             std::unique_lock<common::Mutex> lk(cvMutex_);
             auto now = std::chrono::system_clock::now();
@@ -203,8 +204,8 @@ class SnapShotCleanTask2: public Task {
     }
 
     /**
-     * brief: 启动计时器，在指定超时时间后唤醒本任务执行。
-     *        目的是为了保证client更新到最新的snap context后再开始快照删除。
+     * brief: Start timer to ensure the snapshot deletion task begins running after
+     *        all clients are updated with the latest snap context
     */
     void StartTimer() {
         std::thread t([&]() {
@@ -246,121 +247,26 @@ class SnapShotBatchCleanTask: public Task {
         storage_ = storage;
     }
 
-    void Run(void) override {
-        do {
-            auto task = front();
-            if (!task) {
-                LOG(INFO) << "SnapShotBatchCleanTask run finished, taskid = " << GetTaskID();
-                GetMutableTaskProgress()->SetProgress(100);
-                GetMutableTaskProgress()->SetStatus(TaskStatus::SUCCESS);
-                return;
-            }
+    void Run(void) override;
 
-            LOG(INFO) << "Ready to clean snapshot " << task->GetMutableFileInfo()->filename()
-                      << ", batch taskid = " << GetTaskID();
-            // CAUTION: Fill the snaps field of snapshot fileinfo with currently
-            //          existed snapshot file seqnum prior to the snap to be deleted
-            if (!setCurrentExistingSnaps(task->GetMutableFileInfo())) {
-                LOG(ERROR) << "Unable to get snaps from storage, clean task failed."
-                        << " batch taskid = " << GetTaskID();
-                GetMutableTaskProgress()->SetStatus(TaskStatus::FAILED);
-                return;
-            }
-            // Start to do snapshot clean task synchronously.
-            task->Run();
-            if (task->GetTaskProgress().GetStatus() == TaskStatus::SUCCESS) {
-                LOG(INFO) << "Snapshot " << task->GetMutableFileInfo()->filename()
-                        << " cleaned success, batch taskid = " << GetTaskID();
-                pop(task->GetMutableFileInfo()->seqnum());
-            } else {
-                // Notify CleanTaskManager with failed status and may try 
-                // again before exceeding retry times 
-                LOG(INFO) << "Snapshot " << task->GetMutableFileInfo()->filename()
-                        << " cleaned failed, batch taskid = " << GetTaskID();
-                GetMutableTaskProgress()->SetStatus(TaskStatus::FAILED);
-                return;
-            }
-        } while (true);
-    }
+    bool PushTask(const FileInfo &snapfileInfo);
 
-    bool PushTask(const FileInfo &snapfileInfo) {
-        common::LockGuard lck(mutexSnapTask_);
-        
-        if (cleanOrderedSnapTasks_.find(snapfileInfo.seqnum()) != cleanOrderedSnapTasks_.end()) {
-            return false;
-        }
-        auto task = std::make_shared<SnapShotCleanTask2>(static_cast<TaskIDType>(snapfileInfo.seqnum()), 
-                                    cleanCore_, snapfileInfo, asyncEntity_, mdsSessionTimeUs_);
-        task->StartTimer();
-        cleanOrderedSnapTasks_.insert(std::make_pair(static_cast<SeqNum>(snapfileInfo.seqnum()), task));
-        LOG(INFO) << "SnapShotBatchCleanTask push snapshot " << snapfileInfo.filename()
-                  << ", to be deleted snapshot count = " << cleanOrderedSnapTasks_.size()
-                  << ", batch taskid = " << GetTaskID();
-        return true;
-    }
+    std::shared_ptr<Task> GetTask(SeqNum sn);
 
-    std::shared_ptr<Task> GetTask(SeqNum sn) {
-        common::LockGuard lck(mutexSnapTask_);
-
-        auto iter = cleanOrderedSnapTasks_.find(sn);
-        if (iter == cleanOrderedSnapTasks_.end()) {
-            return nullptr;
-        } else {
-            return iter->second;
-        }        
-    }
-
-    bool IsEmpty() {
-        common::LockGuard lck(mutexSnapTask_);
-        return cleanOrderedSnapTasks_.empty();
-    } 
+    bool IsEmpty();
 
  private:
-    std::shared_ptr<SnapShotCleanTask2> front() {
-        common::LockGuard lck(mutexSnapTask_);
-        auto iter = cleanOrderedSnapTasks_.begin();
-        if (iter == cleanOrderedSnapTasks_.end()) {
-            return nullptr;
-        }
-        return iter->second;
-    }
+    std::shared_ptr<SnapShotCleanTask2> front();
 
-    void pop(SeqNum sn) {
-        common::LockGuard lck(mutexSnapTask_);
-        cleanOrderedSnapTasks_.erase(sn);
-        LOG(INFO) << "SnapShotBatchCleanTask pop snapshot " << sn
-                  << ", remain snapshot count = " << cleanOrderedSnapTasks_.size()
-                  << ", batch taskid = " << GetTaskID();
-    }
+    void pop(SeqNum sn);
 
     /**
-     *  @brief 从元数据服务获取指定快照编号之前的，且目前仍存在的快照文件的编号集合，
-     *         并赋值到该指定快照
-     *  @param snapshotInfo: 指定快照的信息
-     *  @return 是否设置成功
+     *  @brief Update existing snapshot with sn less than the snapshot to be 
+     *         deleted within the clone file where snapshot belongs to.
+     *  @param snapshotInfo: snapshot to be deleted
+     *  @return result
      */
-    bool setCurrentExistingSnaps(FileInfo* snapshotInfo) {
-        // list snapshot files
-        std::vector<FileInfo> snapshotFileInfos;
-        auto storeStatus =  storage_->ListSnapshotFile(snapshotInfo->parentid(),
-                                            snapshotInfo->parentid() + 1,
-                                            &snapshotFileInfos);
-        if (storeStatus != StoreStatus::KeyNotExist &&
-            storeStatus != StoreStatus::OK) {
-            LOG(ERROR) << "snapshot name " << snapshotInfo->filename() 
-                       << ", storage ListSnapshotFile return " << storeStatus;
-            return false;
-        } 
-        snapshotInfo->clear_snaps();
-        for (FileInfo& info:snapshotFileInfos) {
-            // only snaps prior to the deleted snapshot matter.
-            if (info.seqnum() < snapshotInfo->seqnum()) {
-                snapshotInfo->add_snaps(info.seqnum());
-            }
-        }
-        return true;
-    }
-
+    bool setCurrentExistingSnaps(FileInfo* snapshotInfo);
 
  private:
     std::shared_ptr<CleanCore> cleanCore_;

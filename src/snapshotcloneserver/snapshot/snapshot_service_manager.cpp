@@ -25,6 +25,8 @@
 #include <glog/logging.h>
 #include "src/common/string_util.h"
 
+using ::curve::common::NameLockGuard;
+
 namespace curve {
 namespace snapshotcloneserver {
 
@@ -88,6 +90,7 @@ int SnapshotServiceManager::CreateSyncSnapshot(const std::string &file,
     const std::string &user,
     const std::string &snapshotName,
     UUID *uuid) {
+    NameLockGuard lockGuard(fileNameLock_, file);
     SnapshotInfo snapInfo;
     int ret = core_->CreateSyncSnapshotPre(file, user, snapshotName, &snapInfo);
     if (ret < 0) {
@@ -114,6 +117,31 @@ int SnapshotServiceManager::CreateSyncSnapshot(const std::string &file,
             LOG(ERROR) << "DeleteSyncSnapshot fail when HandleCreateSyncSnapshotTask error,"
                        << " ret = " << retTmp;
         }
+        return ret;
+    }
+    return kErrCodeSuccess;
+}
+
+int SnapshotServiceManager::RecoverFile(
+    const UUID &source,
+    const std::string &user,
+    const std::string &file) {
+    NameLockGuard lockGuard(fileNameLock_, file);
+    SnapshotInfo snapInfo;
+    int ret = core_->RecoverFilePre(source, user, file, &snapInfo);
+    if (ret < 0) {
+        LOG(ERROR) << "RecoverFile error,"
+                   << " ret = " << ret
+                   << ", file = " << file
+                   << ", snapshot uuid = " << source;
+        return ret;        
+    }
+
+    ret = core_->HandleRecoverFile(snapInfo);
+    if (ret < 0) {
+        LOG(ERROR) << "HandleRecoverFile error, ret = " << ret
+                   << ", file = " << file
+                   << ", snap uuid = " << source;
         return ret;
     }
     return kErrCodeSuccess;

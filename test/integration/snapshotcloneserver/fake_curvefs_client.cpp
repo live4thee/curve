@@ -101,6 +101,14 @@ int FakeCurveFsClient::DeleteSnapshot(const std::string &filename,
     return -LIBCURVE_ERROR::NOTEXIST;
 }
 
+int FakeCurveFsClient::RecoverFile(const std::string &filename,
+                                   const std::string &user,
+                                   uint64_t seq) {
+    fiu_return_on(
+        "test/integration/snapshotcloneserver/FakeCurveFsClient.RecoverFile", -LIBCURVE_ERROR::FAILED);  // NOLINT
+    return LIBCURVE_ERROR::OK;                              
+}
+
 int FakeCurveFsClient::GetSnapshot(const std::string &filename,
                                    const std::string &user,
                                    uint64_t seq,
@@ -135,6 +143,7 @@ int FakeCurveFsClient::GetSnapshotSegmentInfo(const std::string &filename,
 
 int FakeCurveFsClient::ReadChunkSnapshot(ChunkIDInfo cidinfo,
         uint64_t seq,
+        const CloneFileInfos& cloneFileInfos,
         uint64_t offset,
         uint64_t len,
         char *buf,
