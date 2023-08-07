@@ -76,31 +76,28 @@ bool CSDataStore::Initialize() {
         FileNameOperator::FileInfo info =
             FileNameOperator::ParseFileName(files[i]);
         if (info.type == FileNameOperator::FileType::CHUNK) {
-            // If the chunk file has not been loaded yet, load it to metaCache
-            CSErrorCode errorCode = loadChunkFile(info.id);
-            if (errorCode != CSErrorCode::Success) {
-                LOG(ERROR) << "Load chunk file failed: " << files[i];
-                return false;
-            }
+            LOG(WARNING) << "Find chunk file " << files[i] << ", which should not happen";
         } else if (info.type == FileNameOperator::FileType::SNAPSHOT) {
-            string chunkFilePath = baseDir_ + "/" +
-                        FileNameOperator::GenerateChunkFileName(info.id);
+            // For instant rollback, on disk chunk file no longer exists.
+            // Only chunk snapshot files exist, so load file in loadSnapshot method afterwards            
+            if (metaCache_.Get(info.id) == nullptr) {
+                ChunkOptions options;
+                options.id = info.id;
+                options.sn = 0;
+                options.baseDir = baseDir_;
+                options.chunkSize = chunkSize_;
+                options.pageSize = pageSize_;
+                options.metric = metric_;
+                CSChunkFilePtr chunkFilePtr =
+                    std::make_shared<CSChunkFile>(lfs_,
+                                                chunkFilePool_,
+                                                options);
 
-            // If the chunk file does not exist, print the log
-            if (!lfs_->FileExists(chunkFilePath)) {
-                LOG(WARNING) << "Can't find snapshot "
-                             << files[i] << "' chunk.";
-                continue;
-            }
-            // If the chunk file exists, load the chunk file to metaCache first
-            CSErrorCode errorCode = loadChunkFile(info.id);
-            if (errorCode != CSErrorCode::Success) {
-                LOG(ERROR) << "Load chunk file failed.";
-                return false;
+                metaCache_.Set(info.id, chunkFilePtr);
             }
 
             // Load snapshot to memory
-            errorCode = metaCache_.Get(info.id)->LoadSnapshot(info.sn);
+            CSErrorCode errorCode = metaCache_.Get(info.id)->LoadSnapshot(info.sn);
             if (errorCode != CSErrorCode::Success) {
                 LOG(ERROR) << "Load snapshot failed.";
                 return false;
@@ -109,17 +106,18 @@ bool CSDataStore::Initialize() {
             LOG(WARNING) << "Unknown file: " << files[i];
         }
     }
-    LOG(INFO) << "Initialize data store success.";
+    LOG(INFO) << "Initialize data store success with " << files.size() 
+              << " files in dir " << baseDir_;
     return true;
 }
 
-CSErrorCode CSDataStore::DeleteChunk(ChunkID id, SequenceNum sn, std::shared_ptr<SnapContext> ctx) {
-    if (ctx != nullptr && !ctx->empty()) {
-        LOG(WARNING) << "Delete chunk file failed: snapshot exists."
-                     << "ChunkID = " << id;
-        return CSErrorCode::SnapshotExistError;
-    }
-
+/**
+ * It's guaranteed by control plane (MDS) that the chunk can be deleted 
+ * when meeting the following conditions: 
+ * a. all of the snapshots have been cleared
+ * b. or all of the snapshots are to be cleared
+*/
+CSErrorCode CSDataStore::DeleteChunk(ChunkID id, SequenceNum sn) {
     auto chunkFile = metaCache_.Get(id);
     if (chunkFile != nullptr) {
         CSErrorCode errorCode = chunkFile->Delete(sn);
@@ -139,7 +137,7 @@ CSErrorCode CSDataStore::DeleteSnapshotChunk(
     if (chunkFile != nullptr) {
         CSErrorCode errorCode = chunkFile->DeleteSnapshot(snapSn, ctx);  // NOLINT
         if (errorCode != CSErrorCode::Success) {
-            LOG(WARNING) << "Delete snapshot chunk or correct sn failed."
+            LOG(WARNING) << "Delete snapshot chunk failed."
                          << "ChunkID = " << id
                          << ", snapSn = " << snapSn;
             return errorCode;
@@ -152,19 +150,19 @@ CSErrorCode CSDataStore::ReadChunk(ChunkID id,
                                    SequenceNum sn,
                                    char * buf,
                                    off_t offset,
-                                   size_t length) {
-    auto chunkFile = metaCache_.Get(id);
-    if (chunkFile == nullptr) {
-        return CSErrorCode::ChunkNotExistError;
+                                   size_t length,
+                                   std::shared_ptr<SnapContext> ctx) {
+    if (!ctx) {
+        return CSErrorCode::InvalidArgError;
     }
-
-    CSErrorCode errorCode = chunkFile->Read(buf, offset, length);
-    if (errorCode != CSErrorCode::Success) {
-        LOG(WARNING) << "Read chunk file failed."
-                     << "ChunkID = " << id;
-        return errorCode;
+    if (sn != ctx->getCurrentFileSn()) {
+        LOG(ERROR) << "Sequence num " << sn 
+                   << " is not equal to current file sn " << ctx->getCurrentFileSn()
+                   << " ChunkID = " << id;
+        return CSErrorCode::InvalidArgError;
     }
-    return CSErrorCode::Success;
+    // we treat chunk and chunk snapshot as the same
+    return ReadSnapshotChunk(id, sn, buf, offset, length, ctx);
 }
 
 // It is ensured that if snap chunk exists, the chunk must exist.
@@ -176,15 +174,20 @@ CSErrorCode CSDataStore::ReadSnapshotChunk(ChunkID id,
                                            off_t offset,
                                            size_t length,
                                            std::shared_ptr<SnapContext> ctx) {
+    if (!ctx) {
+        return CSErrorCode::InvalidArgError;
+    }
     auto chunkFile = metaCache_.Get(id);
     if (chunkFile == nullptr) {
         return CSErrorCode::ChunkNotExistError;
     }
-    if (ctx != nullptr && !ctx->contains(sn)) {
+    if (!ctx->contains(sn)) {
+        LOG(ERROR) << "Read snapshot chunk SnapshotNotExistError, sn = " << sn
+                   << ", ChunkID = " << id;
         return CSErrorCode::SnapshotNotExistError;
     }
     CSErrorCode errorCode =
-        chunkFile->ReadSpecifiedChunk(sn, buf, offset, length);
+        chunkFile->ReadSpecifiedChunk(sn, buf, offset, length, ctx);
     if (errorCode != CSErrorCode::Success) {
         LOG(WARNING) << "Read snapshot chunk failed."
                      << "ChunkID = " << id;
@@ -237,12 +240,20 @@ CSErrorCode CSDataStore::WriteChunk(ChunkID id,
                    << "ChunkID = " << id;
         return CSErrorCode::InvalidArgError;
     }
+
+    if (sn != ctx->getCurrentFileSn()) {
+        LOG(ERROR) << "Sequence num " << sn 
+                   << " is not equal to current file sn " << ctx->getCurrentFileSn()
+                   << " ChunkID = " << id;
+        return CSErrorCode::InvalidArgError;
+    }
     auto chunkFile = metaCache_.Get(id);
     // If the chunk file does not exist, create the chunk file first
     if (chunkFile == nullptr) {
         ChunkOptions options;
         options.id = id;
         options.sn = sn;
+        options.cloneFileId = ctx->getCloneFileInfo(sn).id();
         options.baseDir = baseDir_;
         options.chunkSize = chunkSize_;
         options.location = cloneSourceLocation;
@@ -296,7 +307,6 @@ CSErrorCode CSDataStore::CreateCloneChunk(ChunkID id,
         LOG(ERROR) << "Invalid arguments."
                    << "ChunkID = " << id
                    << ", sn = " << sn
-                   << ", correctedSn = " << correctedSn
                    << ", size = " << size
                    << ", location = " << location;
         return CSErrorCode::InvalidArgError;
@@ -307,7 +317,6 @@ CSErrorCode CSDataStore::CreateCloneChunk(ChunkID id,
         ChunkOptions options;
         options.id = id;
         options.sn = sn;
-        options.correctedSn = correctedSn;
         options.location = location;
         options.baseDir = baseDir_;
         options.chunkSize = chunkSize_;
@@ -325,20 +334,19 @@ CSErrorCode CSDataStore::CreateCloneChunk(ChunkID id,
     // If different sequence or location information are specified in the
     // parameters, there may be concurrent conflicts, and judgments are also
     // required
-    CSChunkInfo info;
-    chunkFile->GetInfo(&info);
-    if (info.location.compare(location) != 0
-        || info.curSn != sn
-        || info.correctedSn != correctedSn) {
-        LOG(WARNING) << "Conflict chunk already exists."
-                   << "sn in arg = " << sn
-                   << ", correctedSn in arg = " << correctedSn
-                   << ", location in arg = " << location
-                   << ", sn in chunk = " << info.curSn
-                   << ", location in chunk = " << info.location
-                   << ", corrected sn in chunk = " << info.correctedSn;
-        return CSErrorCode::ChunkConflictError;
-    }
+
+    // We may implement clone in a different way later.
+    // CSChunkInfo info;
+    // chunkFile->GetInfo(&info);
+    // if (info.location.compare(location) != 0
+    //     || info.curSn != sn) {
+    //     LOG(WARNING) << "Conflict chunk already exists."
+    //                << "sn in arg = " << sn
+    //                << ", location in arg = " << location
+    //                << ", sn in chunk = " << info.curSn
+    //                << ", location in chunk = " << info.location;
+    //     return CSErrorCode::ChunkConflictError;
+    // }
     return CSErrorCode::Success;
 }
 
@@ -395,59 +403,57 @@ DataStoreStatus CSDataStore::GetStatus() {
     return status;
 }
 
-CSErrorCode CSDataStore::loadChunkFile(ChunkID id) {
-    // If the chunk file has not been loaded yet, load it into metaCache
-    if (metaCache_.Get(id) == nullptr) {
-        ChunkOptions options;
-        options.id = id;
-        options.sn = 0;
-        options.baseDir = baseDir_;
-        options.chunkSize = chunkSize_;
-        options.pageSize = pageSize_;
-        options.metric = metric_;
-        CSChunkFilePtr chunkFilePtr =
-            std::make_shared<CSChunkFile>(lfs_,
-                                          chunkFilePool_,
-                                          options);
-        CSErrorCode errorCode = chunkFilePtr->Open(false);
-        if (errorCode != CSErrorCode::Success)
-            return errorCode;
-        metaCache_.Set(id, chunkFilePtr);
+SnapContext::SnapContext(const CloneFileInfos& cloneFileInfos)
+    : cloneFileInfos_(cloneFileInfos) {
+}
+
+SequenceNum SnapContext::getPrev(SequenceNum sn) const {
+    CloneFileInfo clone = getCloneFileInfo(sn);
+    if (clone.seqnum() == sn) {
+        return clone.snaps().empty() ? 0 : *clone.snaps().rbegin();
     }
-    return CSErrorCode::Success;
+    auto it = std::lower_bound(clone.snaps().begin(), clone.snaps().end(), sn);
+    if (it == clone.snaps().begin()) {
+        return 0;
+    }
+    return *--it;
 }
 
-SnapContext::SnapContext(const std::vector<SequenceNum>& snapIds) {
-    std::copy(snapIds.begin(), snapIds.end(), std::back_inserter(snaps));
+SequenceNum SnapContext::getLatest(SequenceNum sn) const {
+    CloneFileInfo clone = getCloneFileInfo(sn);
+    return clone.snaps().empty() ? 0: *clone.snaps().rbegin();
 }
 
-SequenceNum SnapContext::getPrev(SequenceNum snapSn) const {
-    SequenceNum n = 0;
-    for (long i = 0; i < snaps.size(); i++) {
-        if (snaps[i] >= snapSn) {
-            break;
+bool SnapContext::contains(SequenceNum sn) const {
+    CloneFileInfo clone = getCloneFileInfo(sn);
+    if (clone.seqnum() == 0) 
+        return false;
+    return clone.seqnum() == sn || std::binary_search(clone.snaps().begin(), clone.snaps().end(), sn);
+}
+
+bool SnapContext::empty(SequenceNum sn) const {
+    CloneFileInfo clone = getCloneFileInfo(sn);
+    return clone.snaps().empty();
+}
+
+CloneFileInfo SnapContext::getCloneFileInfo(SequenceNum sn) const {
+    CloneFileInfo info;
+    // the clone file is guaranteed sorted by seqnum() field in ascending order
+    // the sn to be found MAY be missing in the clone.snaps() array (in snapshot delete situation)
+    for (auto& clone : cloneFileInfos_.clones()) {
+        if (sn <= clone.seqnum()) {
+            return clone;
         }
-        n = snaps[i];
     }
-
-    return n;
+    return info;
 }
 
-SequenceNum SnapContext::getNext(SequenceNum snapSn) const {
-    auto it = std::find_if(snaps.begin(), snaps.end(), [&](SequenceNum n) {return n > snapSn;});
-    return it == snaps.end() ? 0 : *it;
+CloneFileInfos SnapContext::getCloneFileInfos() const {
+    return cloneFileInfos_;
 }
 
-SequenceNum SnapContext::getLatest() const {
-    return snaps.empty() ? 0 : *snaps.rbegin();
-}
-
-bool SnapContext::contains(SequenceNum snapSn) const {
-    return std::find(snaps.begin(), snaps.end(), snapSn) != snaps.end();
-}
-
-bool SnapContext::empty() const {
-    return snaps.empty();
+SequenceNum SnapContext::getCurrentFileSn() const {
+    return cloneFileInfos_.seqnum();
 }
 
 }  // namespace chunkserver

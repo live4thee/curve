@@ -115,6 +115,7 @@ static void WriteThenReadVerify(PeerId leaderId,
             request.set_offset(length*i);
             request.set_size(length);
             request.set_sn(sn);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             cntl.request_attachment().resize(length, fillCh);
             stub.WriteChunk(&cntl, &request, &response, nullptr);
             LOG_IF(INFO, cntl.Failed()) << "error msg: "
@@ -137,6 +138,7 @@ static void WriteThenReadVerify(PeerId leaderId,
             request.set_offset(length*i);
             request.set_size(length);
             request.set_sn(sn);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             stub.ReadChunk(&cntl, &request, &response, nullptr);
             LOG_IF(INFO, cntl.Failed()) << "error msg: "
                                         << cntl.ErrorCode() << " : "
@@ -184,6 +186,7 @@ static void ReadVerify(PeerId leaderId,
         request.set_offset(length*i);
         request.set_size(length);
         request.set_sn(sn);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         stub.ReadChunk(&cntl, &request, &response, nullptr);
         LOG_IF(INFO, cntl.Failed()) << "error msg: "
                                     << cntl.ErrorCode() << " : "
@@ -231,6 +234,7 @@ static void ReadVerifyNotAvailable(PeerId leaderId,
         request.set_offset(length*i);
         request.set_size(length);
         request.set_sn(sn);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         stub.ReadChunk(&cntl, &request, &response, nullptr);
         LOG_IF(INFO, cntl.Failed()) << "error msg: "
                                     << cntl.ErrorCode() << " : "
@@ -385,7 +389,7 @@ TEST_F(ChunkServerSnapshotTest, OneNode) {
     expectResp.set_lastindex(commitedIndex);
     expectResp.set_diskindex(commitedIndex);
     expectResp.set_epoch(1);
-    expectResp.set_hash("3049021227");
+    expectResp.set_hash("3955658858");
     CopysetStatusVerify(leaderId, logicPoolId, copysetId, &expectResp);
 }
 
@@ -467,7 +471,7 @@ TEST_F(ChunkServerSnapshotTest, OneNodeShutdown) {
     expectResp.set_lastindex(commitedIndex);
     expectResp.set_diskindex(commitedIndex);
     expectResp.set_epoch(2);
-    expectResp.set_hash("3049021227");
+    expectResp.set_hash("3955658858");
 
     CopysetStatusVerify(leaderId, logicPoolId, copysetId, &expectResp);
 }

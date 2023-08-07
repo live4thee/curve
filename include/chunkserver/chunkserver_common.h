@@ -30,6 +30,7 @@
 
 #include <cstdint>
 #include <string>
+#include "proto/common.pb.h"
 
 namespace curve {
 namespace chunkserver {
@@ -60,6 +61,8 @@ using PosixFileSystemAdaptor = braft::PosixFileSystemAdaptor;
 using SnapshotThrottle = braft::SnapshotThrottle;
 using ThroughputSnapshotThrottle = braft::ThroughputSnapshotThrottle;
 
+using curve::common::CloneFileInfo;
+using curve::common::CloneFileInfos;
 
 // TODO(lixiaocui): 考虑一下后续的单元测试或者校验要怎么做
 /*
@@ -121,6 +124,21 @@ inline std::string ToGroupIdString(const LogicPoolID &logicPoolId,
     groupIdString.append(")");
     return groupIdString;
 }
+
+/**
+ * 初始化一个只有一个sn的CloneFileInfos pb结构，主要用于ut测试使用
+*/
+inline CloneFileInfos buildCloneFileInfos(SequenceNum sn) {
+    CloneFileInfos infos;
+    infos.set_seqnum(sn);
+    CloneFileInfo info;
+    info.set_seqnum(sn);
+    info.set_recoversource(0);
+    auto clone = infos.add_clones();
+    clone->CopyFrom(info);
+    return infos;    
+}
+
 #define ToGroupIdStr   ToGroupIdString
 
 }  // namespace chunkserver

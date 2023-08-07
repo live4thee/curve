@@ -155,20 +155,17 @@ class CSDataStore {
      */
     virtual bool Initialize();
     /**
-     * Delete the current chunk file
+     * Delete the current chunk file along with all of the snapshots
      * @param id: the id of the chunk to be deleted
      * @param sn: used to record trace, if sn<chunk sn, delete is not allowed
      * @return: return error code
      */
-    virtual CSErrorCode DeleteChunk(ChunkID id, SequenceNum sn, std::shared_ptr<SnapContext> ctx = nullptr);
+    virtual CSErrorCode DeleteChunk(ChunkID id, SequenceNum sn);
     /**
-     * Delete snapshots generated during this dump or before
-     * If no snapshot is generated during the dump, modify the correctedSn
-     * of the chunk
+     * Delete snapshots 
      * @param id: the chunk id of the snapshot to be deleted
-     * @param correctedSn: the sequence number that needs to be corrected
-     * If the snapshot does not exist, you need to modify the correctedSn
-     * of the chunk to this parameter value
+     * @param snapSn: the sequence number that needs to be deleted
+     * @param ctx: the SnapContext of file which describes the file structure
      * @return: return error code
      */
     virtual CSErrorCode DeleteSnapshotChunk(
@@ -181,13 +178,15 @@ class CSDataStore {
      * @param buf: the content of the data read
      * @param offset: the logical offset of the data requested to be read in the chunk
      * @param length: the length of the data requested to be read
+     * @param ctx: the SnapContext of file which describes the file structure
      * @return: return error code
      */
     virtual CSErrorCode ReadChunk(ChunkID id,
                                   SequenceNum sn,
                                   char * buf,
                                   off_t offset,
-                                  size_t length);
+                                  size_t length,
+                                  std::shared_ptr<SnapContext> ctx = nullptr);
     /**
      * Read the data of the specified sequence, it may read the current
      * chunk file, or it may read the snapshot file
@@ -197,6 +196,7 @@ class CSDataStore {
      * @param offset: the logical offset of the data requested
      *                to be read in the chunk
      * @param length: the length of the data requested to be read
+     * @param ctx: the SnapContext of file which describes the file structure
      * @return: return error code
      */
     virtual CSErrorCode ReadSnapshotChunk(ChunkID id,
@@ -214,6 +214,7 @@ class CSDataStore {
      * @param offset: the offset address requested to write
      * @param length: the length of the data requested to be written
      * @param cost: the actual number of IOs generated, used for QOS control
+     * @param ctx: the SnapContext of file which describes the file structure
      * @param cloneSource: indicates the address of the clone from curvefs
      * @return: return error code
      */
@@ -237,9 +238,9 @@ class CSDataStore {
         const std::string &cloneSourceLocation = "") {
         butil::IOBuf data;
         data.append_user_data(const_cast<char*>(buf), length, TrivialDeleter);
-
+        CloneFileInfos tmp;
         return WriteChunk(id, sn, data, offset, length, cost,
-                          SnapContext::build_empty(), cloneSourceLocation);
+                          SnapContext::build_empty(sn), cloneSourceLocation);
     }
 
     // Deprecated, only use for unit & integration test
@@ -311,7 +312,6 @@ class CSDataStore {
     virtual DataStoreStatus GetStatus();
 
  private:
-    CSErrorCode loadChunkFile(ChunkID id);
     CSErrorCode CreateChunkFile(const ChunkOptions & ops,
                                 CSChunkFilePtr* chunkFile);
 

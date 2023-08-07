@@ -111,6 +111,7 @@ static void WriteThenReadVerify(PeerId leaderId,
         request.set_offset(length*i);
         request.set_size(length);
         request.set_sn(sn);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         cntl.request_attachment().resize(length, fillCh);
         ChunkService_Stub stub(channel);
         stub.WriteChunk(&cntl, &request, &response, nullptr);
@@ -143,6 +144,7 @@ static void WriteThenReadVerify(PeerId leaderId,
             request.set_offset(length*i);
             request.set_size(length);
             request.set_sn(sn);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             stub.ReadChunk(&cntl, &request, &response, nullptr);
             LOG_IF(INFO, cntl.Failed()) << "error msg: "
                                         << cntl.ErrorCode() << " : "
@@ -190,6 +192,7 @@ static void ReadVerify(PeerId leaderId,
         request.set_offset(length*i);
         request.set_size(length);
         request.set_sn(sn);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         stub.ReadChunk(&cntl, &request, &response, nullptr);
         LOG_IF(INFO, cntl.Failed()) << "error msg: "
                                     << cntl.ErrorCode() << " : "

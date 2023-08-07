@@ -41,3 +41,22 @@ message ChunkServerLocation {
     optional string externalIp = 4;
 }
 
+// For instant rollback
+message CloneFileInfo {
+    // immutable identity of this clone file, it's used to discriminate
+    // between each clone file and persisted to chunk file
+    optional    uint64      id = 1;
+    // seqNum of this clone file
+    optional    uint64      seqNum =  2;
+    // which seqNum is the clone file recovered from
+    optional    uint64      recoverSource   =  3;
+    // snapshots of this clone file
+    repeated    uint64      snaps = 4;
+}
+
+message CloneFileInfos {
+    // indicate which file is the current working file
+    optional    uint64        seqNum = 1;
+    // all clone files within it
+    repeated    CloneFileInfo clones =  2;
+}

@@ -15,6 +15,7 @@
  */
 
 syntax = "proto2";
+import "proto/common.proto";
 package curve.chunkserver;
 
 option cc_generic_services = true;
@@ -63,7 +64,7 @@ message ChunkRequest {
     optional uint64 cloneFileOffset = 13;   // for write/read
     optional uint64 fileId = 18;  // for io fence
     optional uint64 epoch = 19;  // for io fence
-    repeated uint64 snaps = 20 [packed = true];
+    optional common.CloneFileInfos cloneFileInfos = 20; // for instant rollback
 };
 
 enum CHUNK_OP_STATUS {

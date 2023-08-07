@@ -38,15 +38,6 @@
 namespace curve {
 namespace chunkserver {
 
-static std::vector<SequenceNum> getSnapIds(const ChunkRequest* request) {
-    // std::vector has move-semantics in c++11
-    std::vector<SequenceNum> snaps;
-    for (long i = 0; i < request->snaps_size(); ++i) {
-        snaps.push_back(request->snaps(i));
-    }
-    std::sort(snaps.begin(), snaps.end());
-    return snaps;
-}
 
 ChunkOpRequest::ChunkOpRequest() :
     datastore_(nullptr),
@@ -187,8 +178,7 @@ void DeleteChunkRequest::OnApply(uint64_t index,
     brpc::ClosureGuard doneGuard(done);
 
     auto ret = datastore_->DeleteChunk(request_->chunkid(),
-                                       request_->sn(),
-                                       std::make_shared<SnapContext>(getSnapIds(request_)));
+                                       request_->sn());
     if (CSErrorCode::Success == ret) {
         response_->set_status(CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS);
         node_->UpdateAppliedIndex(index);
@@ -217,8 +207,7 @@ void DeleteChunkRequest::OnApplyFromLog(std::shared_ptr<CSDataStore> datastore,
                                         const butil::IOBuf &data) {
     // NOTE: 处理过程中优先使用参数传入的datastore/request
     auto ret = datastore->DeleteChunk(request.chunkid(),
-                                      request.sn(),
-                                      std::make_shared<SnapContext>(getSnapIds(&request)));
+                                      request.sn());
     if (CSErrorCode::Success == ret)
         return;
 
@@ -308,70 +297,128 @@ void ReadChunkRequest::Process() {
     }
 }
 
+// void ReadChunkRequest::OnApply(uint64_t index,
+//                                ::google::protobuf::Closure *done) {
+//     // 先清除response中的status，以保证CheckForward后的判断的正确性
+//     response_->clear_status();
+
+//     CSChunkInfo chunkInfo;
+//     CSErrorCode errorCode = datastore_->GetChunkInfo(request_->chunkid(),
+//                                                      &chunkInfo);
+//     do {
+//         bool needLazyClone = false;
+//         // 如果需要Read的chunk不存在，但是请求包含Clone源信息，则尝试从Clone源读取数据
+//         if (CSErrorCode::ChunkNotExistError == errorCode) {
+//             if (existCloneInfo(request_)) {
+//                 needLazyClone = true;
+//             } else {
+//                 response_->set_status(
+//                     CHUNK_OP_STATUS::CHUNK_OP_STATUS_CHUNK_NOTEXIST);
+//                 break;
+//             }
+//         } else if (CSErrorCode::Success != errorCode) {
+//             LOG(ERROR) << "get chunkinfo failed: "
+//                        << " logic pool id: " << request_->logicpoolid()
+//                        << " copyset id: " << request_->copysetid()
+//                        << " chunkid: " << request_->chunkid();
+//             response_->set_status(
+//                 CHUNK_OP_STATUS::CHUNK_OP_STATUS_FAILURE_UNKNOWN);
+//             break;
+//         }
+//         // 如果需要从源端拷贝数据，需要将请求转发给clone manager处理
+//         if ( needLazyClone || NeedClone(chunkInfo) ) {
+//             applyIndex = index;
+//             std::shared_ptr<CloneTask> cloneTask =
+//             cloneMgr_->GenerateCloneTask(
+//                 std::dynamic_pointer_cast<ReadChunkRequest>(shared_from_this()),
+//                 done);
+//             // TODO(yyk) 尽量不能阻塞队列，后面要具体考虑
+//             bool result = cloneMgr_->IssueCloneTask(cloneTask);
+//             if (!result) {
+//                 LOG(ERROR) << "issue clone task failed: "
+//                            << " logic pool id: " << request_->logicpoolid()
+//                            << " copyset id: " << request_->copysetid()
+//                            << " chunkid: " << request_->chunkid();
+//                 response_->set_status(
+//                     CHUNK_OP_STATUS::CHUNK_OP_STATUS_FAILURE_UNKNOWN);
+//                 break;
+//             }
+//             // 如果请求成功转发给了clone manager就可以直接返回了
+//             return;
+//         }
+//         // 如果是ReadChunk请求还需要从本地读取数据
+//         if (request_->optype() == CHUNK_OP_TYPE::CHUNK_OP_READ) {
+//             ReadChunk();
+//         }
+//         // 如果是recover请求，说明请求区域已经被写过了，可以直接返回成功
+//         if (request_->optype() == CHUNK_OP_TYPE::CHUNK_OP_RECOVER) {
+//             response_->set_status(CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS);
+//         }
+//     } while (false);
+
+//     if (response_->status() == CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS) {
+//         node_->UpdateAppliedIndex(index);
+//     }
+
+//     brpc::ClosureGuard doneGuard(done);
+//     auto maxIndex =
+//         (index > node_->GetAppliedIndex() ? index : node_->GetAppliedIndex());
+//     response_->set_appliedindex(maxIndex);
+// }
+static void ReadBufferDeleter(void* ptr) {
+    delete[] static_cast<char*>(ptr);
+}
+
 void ReadChunkRequest::OnApply(uint64_t index,
                                ::google::protobuf::Closure *done) {
-    // 先清除response中的status，以保证CheckForward后的判断的正确性
-    response_->clear_status();
+    brpc::ClosureGuard doneGuard(done);
+    char *readBuffer = nullptr;
+    size_t size = request_->size();
 
-    CSChunkInfo chunkInfo;
-    CSErrorCode errorCode = datastore_->GetChunkInfo(request_->chunkid(),
-                                                     &chunkInfo);
-    do {
-        bool needLazyClone = false;
-        // 如果需要Read的chunk不存在，但是请求包含Clone源信息，则尝试从Clone源读取数据
-        if (CSErrorCode::ChunkNotExistError == errorCode) {
-            if (existCloneInfo(request_)) {
-                needLazyClone = true;
-            } else {
-                response_->set_status(
-                    CHUNK_OP_STATUS::CHUNK_OP_STATUS_CHUNK_NOTEXIST);
-                break;
-            }
-        } else if (CSErrorCode::Success != errorCode) {
-            LOG(ERROR) << "get chunkinfo failed: "
-                       << " logic pool id: " << request_->logicpoolid()
-                       << " copyset id: " << request_->copysetid()
-                       << " chunkid: " << request_->chunkid();
-            response_->set_status(
-                CHUNK_OP_STATUS::CHUNK_OP_STATUS_FAILURE_UNKNOWN);
-            break;
-        }
-        // 如果需要从源端拷贝数据，需要将请求转发给clone manager处理
-        if ( needLazyClone || NeedClone(chunkInfo) ) {
-            applyIndex = index;
-            std::shared_ptr<CloneTask> cloneTask =
-            cloneMgr_->GenerateCloneTask(
-                std::dynamic_pointer_cast<ReadChunkRequest>(shared_from_this()),
-                done);
-            // TODO(yyk) 尽量不能阻塞队列，后面要具体考虑
-            bool result = cloneMgr_->IssueCloneTask(cloneTask);
-            if (!result) {
-                LOG(ERROR) << "issue clone task failed: "
-                           << " logic pool id: " << request_->logicpoolid()
-                           << " copyset id: " << request_->copysetid()
-                           << " chunkid: " << request_->chunkid();
-                response_->set_status(
-                    CHUNK_OP_STATUS::CHUNK_OP_STATUS_FAILURE_UNKNOWN);
-                break;
-            }
-            // 如果请求成功转发给了clone manager就可以直接返回了
-            return;
-        }
-        // 如果是ReadChunk请求还需要从本地读取数据
-        if (request_->optype() == CHUNK_OP_TYPE::CHUNK_OP_READ) {
-            ReadChunk();
-        }
-        // 如果是recover请求，说明请求区域已经被写过了，可以直接返回成功
-        if (request_->optype() == CHUNK_OP_TYPE::CHUNK_OP_RECOVER) {
-            response_->set_status(CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS);
-        }
-    } while (false);
+    readBuffer = new(std::nothrow)char[size];
+    CHECK(nullptr != readBuffer)
+        << "new readBuffer failed " << strerror(errno);
+
+    auto ret = datastore_->ReadChunk(request_->chunkid(),
+                                     request_->sn(),
+                                     readBuffer,
+                                     request_->offset(),
+                                     size,
+                                     std::make_shared<SnapContext>(request_->clonefileinfos()));
+    butil::IOBuf wrapper;
+    wrapper.append_user_data(readBuffer, size, ReadBufferDeleter);
+    if (CSErrorCode::Success == ret) {
+        cntl_->response_attachment().append(wrapper);
+        response_->set_status(CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS);
+    } else if (CSErrorCode::ChunkNotExistError == ret) {
+        response_->set_status(
+            CHUNK_OP_STATUS::CHUNK_OP_STATUS_CHUNK_NOTEXIST);
+    } else if (CSErrorCode::InternalError == ret) {
+        LOG(FATAL) << "read failed: "
+                   << " logic pool id: " << request_->logicpoolid()
+                   << " copyset id: " << request_->copysetid()
+                   << " chunkid: " << request_->chunkid()
+                   << " data size: " << request_->size()
+                   << " read len :" << size
+                   << " clonefileinfos :" << request_->clonefileinfos().DebugString()
+                   << " data store return: " << ret;
+    } else {
+        LOG(ERROR) << "read failed: "
+                   << " logic pool id: " << request_->logicpoolid()
+                   << " copyset id: " << request_->copysetid()
+                   << " chunkid: " << request_->chunkid()
+                   << " data size: " << request_->size()
+                   << " read len :" << size
+                   << " clonefileinfos :" << request_->clonefileinfos().DebugString()
+                   << " data store return: " << ret;
+        response_->set_status(
+            CHUNK_OP_STATUS::CHUNK_OP_STATUS_FAILURE_UNKNOWN);
+    }
 
     if (response_->status() == CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS) {
         node_->UpdateAppliedIndex(index);
     }
 
-    brpc::ClosureGuard doneGuard(done);
     auto maxIndex =
         (index > node_->GetAppliedIndex() ? index : node_->GetAppliedIndex());
     response_->set_appliedindex(maxIndex);
@@ -401,10 +448,6 @@ bool ReadChunkRequest::NeedClone(const CSChunkInfo& chunkInfo) {
     return false;
 }
 
-static void ReadBufferDeleter(void* ptr) {
-    delete[] static_cast<char*>(ptr);
-}
-
 void ReadChunkRequest::ReadChunk() {
     char *readBuffer = nullptr;
     size_t size = request_->size();
@@ -417,7 +460,8 @@ void ReadChunkRequest::ReadChunk() {
                                      request_->sn(),
                                      readBuffer,
                                      request_->offset(),
-                                     size);
+                                     size,
+                                     std::make_shared<SnapContext>(request_->clonefileinfos()));
     butil::IOBuf wrapper;
     wrapper.append_user_data(readBuffer, size, ReadBufferDeleter);
     if (CSErrorCode::Success == ret) {
@@ -433,6 +477,7 @@ void ReadChunkRequest::ReadChunk() {
                    << " chunkid: " << request_->chunkid()
                    << " data size: " << request_->size()
                    << " read len :" << size
+                   << " clonefileinfos :" << request_->clonefileinfos().DebugString()
                    << " data store return: " << ret;
     } else {
         LOG(ERROR) << "read failed: "
@@ -441,6 +486,7 @@ void ReadChunkRequest::ReadChunk() {
                    << " chunkid: " << request_->chunkid()
                    << " data size: " << request_->size()
                    << " read len :" << size
+                   << " clonefileinfos :" << request_->clonefileinfos().DebugString()
                    << " data store return: " << ret;
         response_->set_status(
             CHUNK_OP_STATUS::CHUNK_OP_STATUS_FAILURE_UNKNOWN);
@@ -465,7 +511,7 @@ void WriteChunkRequest::OnApply(uint64_t index,
                                       request_->offset(),
                                       request_->size(),
                                       &cost,
-                                      std::make_shared<SnapContext>(getSnapIds(request_)),
+                                      std::make_shared<SnapContext>(request_->clonefileinfos()),
                                       cloneSourceLocation);
 
     if (CSErrorCode::Success == ret) {
@@ -479,6 +525,7 @@ void WriteChunkRequest::OnApply(uint64_t index,
                      << " copyset id: " << request_->copysetid()
                      << " chunkid: " << request_->chunkid()
                      << " data size: " << request_->size()
+                     << " clonefileinfos :" << request_->clonefileinfos().DebugString()
                      << " data store return: " << ret;
         response_->set_status(
             CHUNK_OP_STATUS::CHUNK_OP_STATUS_BACKWARD);
@@ -495,6 +542,7 @@ void WriteChunkRequest::OnApply(uint64_t index,
                    << " copyset id: " << request_->copysetid()
                    << " chunkid: " << request_->chunkid()
                    << " data size: " << request_->size()
+                   << " clonefileinfos :" << request_->clonefileinfos().DebugString()
                    << " data store return: " << ret;
     } else {
         LOG(ERROR) << "write failed: "
@@ -502,6 +550,7 @@ void WriteChunkRequest::OnApply(uint64_t index,
                    << " copyset id: " << request_->copysetid()
                    << " chunkid: " << request_->chunkid()
                    << " data size: " << request_->size()
+                   << " clonefileinfos :" << request_->clonefileinfos().DebugString()
                    << " data store return: " << ret;
         response_->set_status(
             CHUNK_OP_STATUS::CHUNK_OP_STATUS_FAILURE_UNKNOWN);
@@ -531,7 +580,7 @@ void WriteChunkRequest::OnApplyFromLog(std::shared_ptr<CSDataStore> datastore,
                                      request.offset(),
                                      request.size(),
                                      &cost,
-                                     std::make_shared<SnapContext>(getSnapIds(&request)),
+                                     std::make_shared<SnapContext>(request.clonefileinfos()),
                                      cloneSourceLocation);
      if (CSErrorCode::Success == ret) {
          return;
@@ -541,6 +590,7 @@ void WriteChunkRequest::OnApplyFromLog(std::shared_ptr<CSDataStore> datastore,
                      << " copyset id: " << request.copysetid()
                      << " chunkid: " << request.chunkid()
                      << " data size: " << request.size()
+                     << " clonefileinfos :" << request.clonefileinfos().DebugString()
                      << " data store return: " << ret;
     } else if (CSErrorCode::InternalError == ret ||
                CSErrorCode::CrcCheckError == ret ||
@@ -550,6 +600,7 @@ void WriteChunkRequest::OnApplyFromLog(std::shared_ptr<CSDataStore> datastore,
                    << " copyset id: " << request.copysetid()
                    << " chunkid: " << request.chunkid()
                    << " data size: " << request.size()
+                   << " clonefileinfos :" << request.clonefileinfos().DebugString()
                    << " data store return: " << ret;
     } else {
         LOG(ERROR) << "write failed: "
@@ -557,6 +608,7 @@ void WriteChunkRequest::OnApplyFromLog(std::shared_ptr<CSDataStore> datastore,
                    << " copyset id: " << request.copysetid()
                    << " chunkid: " << request.chunkid()
                    << " data size: " << request.size()
+                   << " clonefileinfos :" << request.clonefileinfos().DebugString()
                    << " data store return: " << ret;
     }
 }
@@ -574,7 +626,7 @@ void ReadSnapshotRequest::OnApply(uint64_t index,
                                              readBuffer,
                                              request_->offset(),
                                              request_->size(),
-                                             std::make_shared<SnapContext>(getSnapIds(request_)));
+                                             std::make_shared<SnapContext>(request_->clonefileinfos()));
     butil::IOBuf wrapper;
     wrapper.append_user_data(readBuffer, size, ReadBufferDeleter);
 
@@ -595,7 +647,6 @@ void ReadSnapshotRequest::OnApply(uint64_t index,
             response_->set_status(CHUNK_OP_STATUS::CHUNK_OP_STATUS_CHUNK_NOTEXIST); //NOLINT
             break;
         }
-        std::string snapsStr = request_->snaps_size() == 0 ? "empty": std::to_string(request_->snaps(request_->snaps_size()-1));
         /**
          * 3.internal error
          */
@@ -605,7 +656,7 @@ void ReadSnapshotRequest::OnApply(uint64_t index,
                        << " copyset id: " << request_->copysetid()
                        << " chunkid: " << request_->chunkid()
                        << " sn: " << request_->sn()
-                       << " latest snap seq = " << snapsStr
+                       << " clonefileinfos: " << request_->clonefileinfos().DebugString()
                        << " data size: " << request_->size()
                        << " read len :" << size
                        << " offset: " << request_->offset()
@@ -619,7 +670,7 @@ void ReadSnapshotRequest::OnApply(uint64_t index,
                    << " copyset id: " << request_->copysetid()
                    << " chunkid: " << request_->chunkid()
                    << " sn: " << request_->sn()
-                   << " latest snap seq = " << snapsStr
+                   << " clonefileinfos: " << request_->clonefileinfos().DebugString()
                    << " data size: " << request_->size()
                    << " read len :" << size
                    << " offset: " << request_->offset()
@@ -644,7 +695,7 @@ void DeleteSnapshotRequest::OnApply(uint64_t index,
                                     ::google::protobuf::Closure *done) {
     brpc::ClosureGuard doneGuard(done);
     CSErrorCode ret = datastore_->DeleteSnapshotChunk(
-        request_->chunkid(), request_->snapsn(), std::make_shared<SnapContext>(getSnapIds(request_)));
+        request_->chunkid(), request_->snapsn(), std::make_shared<SnapContext>(request_->clonefileinfos()));
     if (CSErrorCode::Success == ret) {
         response_->set_status(CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS);
         node_->UpdateAppliedIndex(index);
@@ -654,6 +705,7 @@ void DeleteSnapshotRequest::OnApply(uint64_t index,
                      << " copyset id: " << request_->copysetid()
                      << " chunkid: " << request_->chunkid()
                      << " snapSn: " << request_->snapsn()
+                     << " clonefileinfos: " << request_->clonefileinfos().DebugString()
                      << " data store return: " << ret;
         response_->set_status(
             CHUNK_OP_STATUS::CHUNK_OP_STATUS_BACKWARD);
@@ -663,6 +715,7 @@ void DeleteSnapshotRequest::OnApply(uint64_t index,
                    << " copyset id: " << request_->copysetid()
                    << " chunkid: " << request_->chunkid()
                    << " snapsn: " << request_->snapsn()
+                   << " clonefileinfos: " << request_->clonefileinfos().DebugString()
                    << " data store return: " << ret;
     } else {
         LOG(ERROR) << "delete snapshot or correct sn failed: "
@@ -670,6 +723,7 @@ void DeleteSnapshotRequest::OnApply(uint64_t index,
                    << " copyset id: " << request_->copysetid()
                    << " chunkid: " << request_->chunkid()
                    << " snapsn: " << request_->snapsn()
+                   << " clonefileinfos: " << request_->clonefileinfos().DebugString()
                    << " data store return: " << ret;
         response_->set_status(
             CHUNK_OP_STATUS::CHUNK_OP_STATUS_FAILURE_UNKNOWN);
@@ -683,8 +737,9 @@ void DeleteSnapshotRequest::OnApplyFromLog(std::shared_ptr<CSDataStore> datastor
                                            const ChunkRequest &request,
                                            const butil::IOBuf &data) {
     // NOTE: 处理过程中优先使用参数传入的datastore/request
+
     auto ret = datastore->DeleteSnapshotChunk(
-        request.chunkid(), request.snapsn(), std::make_shared<SnapContext>(getSnapIds(&request)));
+        request.chunkid(), request.snapsn(), std::make_shared<SnapContext>(request.clonefileinfos()));
     if (CSErrorCode::Success == ret) {
         return;
     } else if (CSErrorCode::BackwardRequestError == ret) {
@@ -693,6 +748,7 @@ void DeleteSnapshotRequest::OnApplyFromLog(std::shared_ptr<CSDataStore> datastor
                      << request.copysetid()
                      << " chunkid: " << request.chunkid()
                      << " snapsn: " << request.snapsn()
+                     << " clonefileinfos: " << request.clonefileinfos().DebugString()
                      << " data store return: " << ret;
     } else if (CSErrorCode::InternalError == ret) {
         LOG(FATAL) << "delete snapshot or correct sn failed: "
@@ -700,6 +756,7 @@ void DeleteSnapshotRequest::OnApplyFromLog(std::shared_ptr<CSDataStore> datastor
                    << request.copysetid()
                    << " chunkid: " << request.chunkid()
                    << " snapsn: " << request.snapsn()
+                   << " clonefileinfos: " << request.clonefileinfos().DebugString()
                    << " data store return: " << ret;
     } else {
         LOG(ERROR) << "delete snapshot or correct sn failed: "
@@ -707,6 +764,7 @@ void DeleteSnapshotRequest::OnApplyFromLog(std::shared_ptr<CSDataStore> datastor
                    << request.copysetid()
                    << " chunkid: " << request.chunkid()
                    << " snapsn: " << request.snapsn()
+                   << " clonefileinfos: " << request.clonefileinfos().DebugString()
                    << " data store return: " << ret;
     }
 }

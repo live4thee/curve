@@ -54,6 +54,7 @@ int ChunkServiceOp::WriteChunk(struct ChunkServiceOpConf *opConf,
         request.set_clonefilesource(cloneFileSource);
         request.set_clonefileoffset(cloneFileOffset);
     }
+    request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
     cntl.request_attachment().append(data, len);
     stub.WriteChunk(&cntl, &request, &response, nullptr);
 
@@ -93,6 +94,7 @@ int ChunkServiceOp::ReadChunk(struct ChunkServiceOpConf *opConf,
         request.set_clonefilesource(cloneFileSource);
         request.set_clonefileoffset(cloneFileOffset);
     }
+    request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
 
     stub.ReadChunk(&cntl, &request, &response, nullptr);
     if (cntl.Failed()) {

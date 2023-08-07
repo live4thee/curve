@@ -200,6 +200,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
                 request.set_sn(sn);
                 request.set_offset(kOpRequestAlignSize * i);
                 request.set_size(kOpRequestAlignSize);
+                request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
                 cntl.request_attachment().resize(kOpRequestAlignSize, ch);
                 stub.WriteChunk(&cntl, &request, &response, nullptr);
                 LOG_IF(INFO, cntl.Failed()) << cntl.ErrorText();
@@ -223,6 +224,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
                 request.set_offset(kOpRequestAlignSize * i);
                 request.set_size(kOpRequestAlignSize);
                 request.set_appliedindex(appliedIndex);
+                request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
                 stub.ReadChunk(&cntl, &request, &response, nullptr);
                 ASSERT_FALSE(cntl.Failed());
                 ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS,
@@ -246,6 +248,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
                 request.set_offset(kOpRequestAlignSize * i);
                 request.set_size(kOpRequestAlignSize);
                 request.set_appliedindex(appliedIndex + 1);
+                request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
                 stub.ReadChunk(&cntl, &request, &response, nullptr);
                 ASSERT_FALSE(cntl.Failed());
                 ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS,
@@ -270,6 +273,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
                 request.set_sn(sn);
                 request.set_offset(kOpRequestAlignSize * i);
                 request.set_size(kOpRequestAlignSize);
+                request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
                 cntl.request_attachment().resize(kOpRequestAlignSize, ch);
                 stub.WriteChunk(&cntl, &request, &response, nullptr);
                 ASSERT_FALSE(cntl.Failed());
@@ -289,6 +293,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
                 request.set_sn(sn);
                 request.set_offset(kOpRequestAlignSize * i);
                 request.set_size(kOpRequestAlignSize);
+                request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
                 stub.ReadChunk(&cntl, &request, &response, nullptr);
                 ASSERT_FALSE(cntl.Failed());
                 ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS,
@@ -341,6 +346,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
                 request.set_sn(sn);
                 request.set_offset(kOpRequestAlignSize * i);
                 request.set_size(kOpRequestAlignSize);
+                request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
                 stub.ReadChunk(&cntl, &request, &response, nullptr);
                 ASSERT_FALSE(cntl.Failed());
                 ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_CHUNK_NOTEXIST,
@@ -360,6 +366,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
                 request.set_offset(kOpRequestAlignSize * i);
                 request.set_size(kOpRequestAlignSize);
                 request.set_appliedindex(1);
+                request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
                 stub.ReadChunk(&cntl, &request, &response, nullptr);
                 ASSERT_FALSE(cntl.Failed());
                 ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_CHUNK_NOTEXIST,
@@ -378,6 +385,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
                 request.set_sn(sn);
                 request.set_offset(kOpRequestAlignSize * i);
                 request.set_size(kOpRequestAlignSize);
+                request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
                 cntl.request_attachment().resize(kOpRequestAlignSize, ch);
                 stub.WriteChunk(&cntl, &request, &response, nullptr);
                 ASSERT_FALSE(cntl.Failed());
@@ -514,6 +522,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
             request.set_sn(sn);
             request.set_offset(0);
             request.set_size(kOpRequestAlignSize);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             cntl.request_attachment().resize(kOpRequestAlignSize, ch);
             stub.WriteChunk(&cntl, &request, &response, nullptr);
             LOG_IF(INFO, cntl.Failed()) << cntl.ErrorText();
@@ -535,6 +544,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
             request.set_sn(sn);
             request.set_offset(0);
             request.set_size(kOpRequestAlignSize);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             stub.ReadChunk(&cntl, &request, &response, nullptr);
             ASSERT_FALSE(cntl.Failed());
             ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS,
@@ -610,6 +620,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
                 request.set_sn(sn);
                 request.set_offset(offset);
                 request.set_size(requstSize);
+                request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
                 cntl.request_attachment().append(writeBuffer);
                 stub.WriteChunk(&cntl, &request, &response, nullptr);
                 ASSERT_FALSE(cntl.Failed());
@@ -629,6 +640,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
                 request.set_sn(sn);
                 request.set_offset(offset);
                 request.set_size(requstSize);
+                request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
                 stub.ReadChunk(&cntl, &request, &response, nullptr);
                 ASSERT_FALSE(cntl.Failed());
                 ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS,
@@ -724,6 +736,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
             request.set_sn(sn);
             request.set_offset(offset);
             request.set_size(requestSize);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             cntl.request_attachment().resize(requestSize, ch);
             stub.WriteChunk(&cntl, &request, &response, nullptr);
             ASSERT_FALSE(cntl.Failed());
@@ -743,6 +756,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
             request.set_sn(sn);
             request.set_offset(offset);
             request.set_size(requestSize);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             stub.ReadChunk(&cntl, &request, &response, nullptr);
             ASSERT_FALSE(cntl.Failed());
             ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_SUCCESS,
@@ -783,6 +797,7 @@ TEST_F(ChunkserverTest, normal_read_write_test) {
             request.set_sn(sn);
             request.set_offset(offset);
             request.set_size(requestSize);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             stub.ReadChunk(&cntl, &request, &response, nullptr);
             ASSERT_FALSE(cntl.Failed());
             ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_CHUNK_NOTEXIST,

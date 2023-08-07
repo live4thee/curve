@@ -44,6 +44,8 @@ enum FileStatus {
     kFileCloned = 4;
     // 文件正在被克隆
     kFileBeingCloned = 5;
+    // 文件待删除，标记删除状态，由于还存在引用关系暂不能实际删除
+    kFileToBeDeleted = 6;
 }
 
 message FileInfo {
@@ -73,8 +75,8 @@ message FileInfo {
 
     optional    uint64      epoch = 18;
 
-    // sequence numbers of snapshots
-    repeated    uint64      snaps = 19;
+    // clone files of this file (each rollback produces a CloneFileInfo)
+    repeated    common.CloneFileInfo      clones = 19;
 }
 
 // status code
@@ -142,6 +144,8 @@ enum  StatusCode {
     kSnapshotCloneConnectFail = 136;
     // 快照克隆服务未初始化
     kSnapshotCloneServerNotInit = 137;
+    // 快照标记为待删除
+    kSnapshotToBeDeleted = 138;
 
     // epoch too old
     kEpochTooOld = 140;
@@ -189,6 +193,9 @@ message DeleteFileRequest {
     required uint64     date = 4;
     optional uint64     fileId = 5;
     optional bool       forceDelete = 6;
+    // if true, file can be deleted even if it has normal snapshots
+    // and those snapshots will be cleaned.
+    optional bool       deleteSnaps = 7; 
 };
 
 message DeleteFileResponse {
@@ -327,6 +334,20 @@ message DeleteSnapShotRequest {
 }
 
 message DeleteSnapShotResponse {
+    required StatusCode statusCode = 1;
+}
+
+// recover file to snapshot
+message RecoverFileRequest {
+    required string     fileName = 1;
+    required uint64     seq = 3;
+
+    required string     owner = 2;
+    optional string     signature = 4;
+    required uint64     date = 5;
+}
+
+message RecoverFileResponse {
     required StatusCode statusCode = 1;
 }
 
@@ -558,6 +579,7 @@ service CurveFSService {
             returns (ListSnapShotFileInfoResponse);
     rpc     DeleteSnapShot(DeleteSnapShotRequest)
             returns (DeleteSnapShotResponse);
+    rpc     RecoverFile(RecoverFileRequest) returns (RecoverFileResponse);
     rpc     CheckSnapShotStatus(CheckSnapShotStatusRequest)
             returns (CheckSnapShotStatusResponse);
     rpc     GetSnapShotFileSegment(GetOrAllocateSegmentRequest)

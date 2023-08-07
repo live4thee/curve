@@ -145,12 +145,10 @@ CSErrorCode ChunkFileMetaPage::decode(const char* buf) {
 CSChunkFile::CSChunkFile(std::shared_ptr<LocalFileSystem> lfs,
                          std::shared_ptr<FilePool> chunkFilePool,
                          const ChunkOptions& options)
-    : fd_(-1),
-      size_(options.chunkSize),
+    : size_(options.chunkSize),
       pageSize_(options.pageSize),
       chunkId_(options.id),
       baseDir_(options.baseDir),
-      isCloneChunk_(false),
       snapshots_(std::make_shared<CSSnapshots>(options.pageSize)),
       chunkFilePool_(chunkFilePool),
       lfs_(lfs),
@@ -158,96 +156,46 @@ CSChunkFile::CSChunkFile(std::shared_ptr<LocalFileSystem> lfs,
       enableOdsyncWhenOpenChunkFile_(options.enableOdsyncWhenOpenChunkFile) {
     CHECK(!baseDir_.empty()) << "Create chunk file failed";
     CHECK(lfs_ != nullptr) << "Create chunk file failed";
-    metaPage_.sn = options.sn;
-    metaPage_.correctedSn = options.correctedSn;
-    metaPage_.location = options.location;
-    // If location is not empty, it is CloneChunk,
-    //     and Bitmap needs to be initialized
-    if (!metaPage_.location.empty()) {
-        uint32_t bits = size_ / pageSize_;
-        metaPage_.bitmap = std::make_shared<Bitmap>(bits);
-    }
+    sn_ = options.sn;
+    cloneFileId_ = options.cloneFileId;
     if (metric_ != nullptr) {
         metric_->chunkFileCount << 1;
     }
 }
 
 CSChunkFile::~CSChunkFile() {
-    if (fd_ >= 0) {
-        lfs_->Close(fd_);
-    }
-
     if (metric_ != nullptr) {
         metric_->chunkFileCount << -1;
-        if (isCloneChunk_) {
-            metric_->cloneChunkCount << -1;
-        }
     }
 }
 
 CSErrorCode CSChunkFile::Open(bool createFile) {
     WriteLockGuard writeGuard(rwLock_);
-    string chunkFilePath = path();
-    // Create a new file, if the chunk file already exists, no need to create
-    // The existence of chunk files may be caused by two situations:
-    // 1. getchunk succeeded, but failed in stat or load metapage last time;
-    // 2. Two write requests concurrently create new chunk files
-    if (createFile
-        && !lfs_->FileExists(chunkFilePath)
-        && metaPage_.sn > 0) {
-        char buf[pageSize_];  // NOLINT
-        memset(buf, 0, sizeof(buf));
-        metaPage_.encode(buf);
-        int rc = chunkFilePool_->GetFile(chunkFilePath, buf);
-        // When creating files concurrently, the previous thread may have been
-        // created successfully, then -EEXIST will be returned here. At this
-        // point, you can continue to open the generated file
-        // But the current operation of the same chunk is serial, this problem
-        // will not occur
-        if (rc != 0  && rc != -EEXIST) {
-            LOG(ERROR) << "Error occured when create file."
-                       << " filepath = " << chunkFilePath;
-            return CSErrorCode::InternalError;
-        }
-    }
-    int rc = -1;
-    if (enableOdsyncWhenOpenChunkFile_) {
-        rc = lfs_->Open(chunkFilePath, O_RDWR|O_NOATIME|O_DSYNC);
-    } else {
-        rc = lfs_->Open(chunkFilePath, O_RDWR|O_NOATIME);
-    }
-    if (rc < 0) {
-        LOG(ERROR) << "Error occured when opening file."
-                   << " filepath = " << chunkFilePath;
-        return CSErrorCode::InternalError;
-    }
-    fd_ = rc;
-    struct stat fileInfo;
-    rc = lfs_->Fstat(fd_, &fileInfo);
-    if (rc < 0) {
-        LOG(ERROR) << "Error occured when stating file."
-                   << " filepath = " << chunkFilePath;
-        return CSErrorCode::InternalError;
+    ChunkOptions options;
+    options.id = chunkId_;
+    options.sn = sn_;
+    options.cloneFileId = cloneFileId_;
+    options.baseDir = baseDir_;
+    options.chunkSize = size_;
+    options.pageSize = pageSize_;
+    options.metric = metric_;
+    options.enableOdsyncWhenOpenChunkFile = enableOdsyncWhenOpenChunkFile_;
+    CSSnapshot* snapshot = new (std::nothrow) CSSnapshot(lfs_,
+                                          chunkFilePool_,
+                                          options);
+    CHECK(snapshot != nullptr) << "Failed to new CSSnapshot!";
+    CSErrorCode errorCode = snapshot->Open(createFile);
+    if (errorCode != CSErrorCode::Success) {
+        delete snapshot;
+        snapshot = nullptr;
+        LOG(ERROR) << "Create first chunk/snapshot failed."
+                   << "ChunkID: " << chunkId_
+                   << ",request sn: " << sn_;
+        return errorCode;
     }
 
-    if (fileInfo.st_size != fileSize()) {
-        LOG(ERROR) << "Wrong file size."
-                   << " filepath = " << chunkFilePath
-                   << ", real filesize = " << fileInfo.st_size
-                   << ", expect filesize = " << fileSize();
-        return CSErrorCode::FileFormatError;
-    }
-
-    CSErrorCode errCode = loadMetaPage();
-    // After restarting, only after reopening and loading the metapage,
-    // can we know whether it is a clone chunk
-    if (!metaPage_.location.empty() && !isCloneChunk_) {
-        if (metric_ != nullptr) {
-            metric_->cloneChunkCount << 1;
-        }
-        isCloneChunk_ = true;
-    }
-    return errCode;
+    snapshots_->insert(snapshot);
+    return CSErrorCode::Success;
 }
 
 CSErrorCode CSChunkFile::LoadSnapshot(SequenceNum sn) {
@@ -269,22 +217,23 @@ CSErrorCode CSChunkFile::loadSnapshot(SequenceNum sn) {
     options.chunkSize = size_;
     options.pageSize = pageSize_;
     options.metric = metric_;
-    CSSnapshot *snapshot_ = new(std::nothrow) CSSnapshot(lfs_,
+    CSSnapshot *snapshot = new(std::nothrow) CSSnapshot(lfs_,
                                             chunkFilePool_,
                                             options);
-    CHECK(snapshot_ != nullptr) << "Failed to new CSSnapshot!"
+    CHECK(snapshot != nullptr) << "Failed to new CSSnapshot!"
                                 << "ChunkID:" << chunkId_
                                 << ",snapshot sn:" << sn;
-    CSErrorCode errorCode = snapshot_->Open(false);
+    CSErrorCode errorCode = snapshot->Open(false);
     if (errorCode != CSErrorCode::Success) {
-        delete snapshot_;
-        snapshot_ = nullptr;
+        delete snapshot;
+        snapshot = nullptr;
         LOG(ERROR) << "Load snapshot failed."
                    << "ChunkID: " << chunkId_
                    << ",snapshot sn: " << sn;
         return errorCode;
     }
-    snapshots_->insert(snapshot_);
+    snapshots_->insert(snapshot);
+
     return errorCode;
 }
 
@@ -296,143 +245,8 @@ CSErrorCode CSChunkFile::Write(SequenceNum sn,
                                std::shared_ptr<SnapContext> ctx) {
     WriteLockGuard writeGuard(rwLock_);
     if (!CheckOffsetAndLength(
-            offset, length, isCloneChunk_ ? pageSize_ : FLAGS_minIoAlignment)) {
+            offset, length, pageSize_)) {
         LOG(ERROR) << "Write chunk failed, invalid offset or length."
-                   << "ChunkID: " << chunkId_
-                   << ", offset: " << offset
-                   << ", length: " << length
-                   << ", page size: " << pageSize_
-                   << ", chunk size: " << size_
-                   << ", align: "
-                   << (isCloneChunk_ ? pageSize_ : FLAGS_minIoAlignment);
-        return CSErrorCode::InvalidArgError;
-    }
-    // Curve will ensure that all previous requests arrive or time out
-    // before issuing new requests after user initiate a snapshot request.
-    // Therefore, this is only a log recovery request, and it must have been
-    // executed, and an error code can be returned here.
-    if (sn < metaPage_.sn || sn < metaPage_.correctedSn) {
-        LOG(WARNING) << "Backward write request."
-                     << "ChunkID: " << chunkId_
-                     << ",request sn: " << sn
-                     << ",chunk sn: " << metaPage_.sn
-                     << ",correctedSn: " << metaPage_.correctedSn;
-        return CSErrorCode::BackwardRequestError;
-    }
-
-    // Determine whether to create a snapshot file
-    if (needCreateSnapshot(sn, ctx)) {
-        CSErrorCode err = createSnapshot(ctx->getLatest());
-        if (err != CSErrorCode::Success) {
-            return err;
-        }
-    }
-    // If the requested sequence number is greater than the current chunk
-    // sequence number, the metapage needs to be updated
-    if (sn > metaPage_.sn) {
-        ChunkFileMetaPage tempMeta = metaPage_;
-        tempMeta.sn = sn;
-        CSErrorCode errorCode = updateMetaPage(&tempMeta);
-        if (errorCode != CSErrorCode::Success) {
-            LOG(ERROR) << "Update metapage failed."
-                       << "ChunkID: " << chunkId_
-                       << ",request sn: " << sn
-                       << ",chunk sn: " << metaPage_.sn;
-            return errorCode;
-        }
-        metaPage_.sn = tempMeta.sn;
-    }
-    // If it is cow, copy the data to the snapshot file first
-    if (needCow(sn, ctx)) {
-        CSErrorCode errorCode = copy2Snapshot(offset, length);
-        if (errorCode != CSErrorCode::Success) {
-            LOG(ERROR) << "Copy data to snapshot failed."
-                        << "ChunkID: " << chunkId_
-                        << ",request sn: " << sn
-                        << ",chunk sn: " << metaPage_.sn;
-            return errorCode;
-        }
-    }
-    int rc = writeData(buf, offset, length);
-    if (rc < 0) {
-        LOG(ERROR) << "Write data to chunk file failed."
-                   << "ChunkID: " << chunkId_
-                   << ",request sn: " << sn
-                   << ",chunk sn: " << metaPage_.sn;
-        return CSErrorCode::InternalError;
-    }
-    // If it is a clone chunk, the bitmap will be updated
-    CSErrorCode errorCode = flush();
-    if (errorCode != CSErrorCode::Success) {
-        LOG(ERROR) << "Write data to chunk file failed."
-                   << "ChunkID: " << chunkId_
-                   << ",request sn: " << sn
-                   << ",chunk sn: " << metaPage_.sn;
-        return errorCode;
-    }
-    return CSErrorCode::Success;
-}
-
-CSErrorCode CSChunkFile::createSnapshot(SequenceNum sn) {
-    // clone chunk does not allow to create snapshot
-    if (isCloneChunk_) {
-        LOG(ERROR) << "Clone chunk can't create snapshot."
-                   << "ChunkID: " << chunkId_
-                   << ",request sn: " << sn
-                   << ",chunk sn: " << metaPage_.sn;
-        return CSErrorCode::StatusConflictError;
-    }
-
-    if (snapshots_->contains(sn)) {
-        return CSErrorCode::Success;
-    }
-
-    // create snapshot
-    ChunkOptions options;
-    options.id = chunkId_;
-    options.sn = sn;
-    options.baseDir = baseDir_;
-    options.chunkSize = size_;
-    options.pageSize = pageSize_;
-    options.metric = metric_;
-    auto snapshot_ = new (std::nothrow) CSSnapshot(lfs_,
-                                                   chunkFilePool_,
-                                                   options);
-    CHECK(snapshot_ != nullptr) << "Failed to new CSSnapshot!";
-    CSErrorCode errorCode = snapshot_->Open(true);
-    if (errorCode != CSErrorCode::Success) {
-        delete snapshot_;
-        snapshot_ = nullptr;
-        LOG(ERROR) << "Create snapshot failed."
-                   << "ChunkID: " << chunkId_
-                   << ",request sn: " << sn
-                   << ",chunk sn: " << metaPage_.sn;
-        return errorCode;
-    }
-
-    snapshots_->insert(snapshot_);
-    return CSErrorCode::Success;
-}
-
-CSErrorCode CSChunkFile::Sync() {
-    WriteLockGuard writeGuard(rwLock_);
-    int rc = SyncData();
-    if (rc < 0) {
-        LOG(ERROR) << "Sync data failed, "
-                   << "ChunkID:" << chunkId_;
-        return CSErrorCode::InternalError;
-    }
-    return CSErrorCode::Success;
-}
-
-CSErrorCode CSChunkFile::Paste(const char * buf, off_t offset, size_t length) {
-    WriteLockGuard writeGuard(rwLock_);
-    // If it is not a clone chunk, return success directly
-    if (!isCloneChunk_) {
-        return CSErrorCode::Success;
-    }
-    if (!CheckOffsetAndLength(offset, length, pageSize_)) {
-        LOG(ERROR) << "Paste chunk failed, invalid offset or length."
                    << "ChunkID: " << chunkId_
                    << ", offset: " << offset
                    << ", length: " << length
@@ -442,93 +256,128 @@ CSErrorCode CSChunkFile::Paste(const char * buf, off_t offset, size_t length) {
         return CSErrorCode::InvalidArgError;
     }
 
-    // The request above must be pagesize aligned
-    // the starting page index number of the paste area
-    uint32_t beginIndex = offset / pageSize_;
-    // the last page index number of the paste area
-    uint32_t endIndex = (offset + length - 1) / pageSize_;
-    // Get the unwritten range of the current file
-    std::vector<BitRange> uncopiedRange;
-    metaPage_.bitmap->Divide(beginIndex,
-                             endIndex,
-                             &uncopiedRange,
-                             nullptr);
+    // When it is the first time to write chunk after rollback, chunk file
+    // needs to be created here.
+    if (createChunkIfNotExist(sn, ctx) != CSErrorCode::Success) {
+        return CSErrorCode::InternalError;
+    }
+    // Curve will ensure that all previous requests arrive or time out
+    // before issuing new requests after user initiate a snapshot request.
+    // Therefore, this is only a log recovery request, and it must have been
+    // executed, and an error code can be returned here.
+    SequenceNum latestSn = snapshots_->getLatestFile()->GetSn();
+    if (sn < latestSn) {
+        LOG(WARNING) << "Backward write request."
+                     << "ChunkID: " << chunkId_
+                     << ",request sn: " << sn
+                     << ", latest sn: " << latestSn;
+        return CSErrorCode::BackwardRequestError;
+    }
 
-    // For the unwritten range, write the corresponding data
-    off_t pasteOff;
-    size_t pasteSize;
-    for (auto& range : uncopiedRange) {
-        pasteOff = range.beginIndex * pageSize_;
-        pasteSize = (range.endIndex - range.beginIndex + 1) * pageSize_;
-        int rc = writeData(buf + (pasteOff - offset), pasteOff, pasteSize);
-        if (rc < 0) {
-            LOG(ERROR) << "Paste data to chunk failed."
-                       << "ChunkID: " << chunkId_
-                       << ", offset: " << offset
-                       << ", length: " << length;
-            return CSErrorCode::InternalError;
+    // If the requested sequence number is greater than the current chunk
+    // sequence number, the metapage needs to be updated
+    if (sn > latestSn) {
+        // update metapage and adjust the location in map accordingly
+        CSErrorCode errorCode = snapshots_->Move(latestSn, sn);
+        if (errorCode != CSErrorCode::Success) {
+            return errorCode;
+        }
+        errorCode = loadSnapshot(sn);
+        if (errorCode != CSErrorCode::Success) {
+            return errorCode;
+        }
+        latestSn = snapshots_->getLatestFile()->GetSn();
+    }
+
+    // Determine whether to create a snapshot file
+    if (needCreateSnapshot(sn, ctx)) {
+        CSErrorCode err = createSnapshot(ctx->getLatest(sn), ctx->getCloneFileInfo(sn).id());
+        if (err != CSErrorCode::Success) {
+            return err;
         }
     }
 
-    // Update bitmap
-    CSErrorCode errorCode = flush();
+    // If it is cow, copy the data to the snapshot file first
+    if (needCow(sn, ctx)) {
+        CSErrorCode errorCode = copy2Snapshot(offset, length, sn, ctx);
+        if (errorCode != CSErrorCode::Success) {
+            LOG(ERROR) << "Copy data to snapshot failed."
+                        << "ChunkID: " << chunkId_
+                        << ",request sn: " << sn
+                        << ", latest sn: " << latestSn;
+            return errorCode;
+        }
+    }
+    CSErrorCode rc = snapshots_->getLatestFile()->Write(buf, offset, length);
+    if (rc != CSErrorCode::Success) {
+        LOG(ERROR) << "Write data to chunk file failed."
+                   << "ChunkID: " << chunkId_
+                   << ",request sn: " << sn
+                   << ", latest sn: " << latestSn;
+        return CSErrorCode::InternalError;
+    }
+    CSErrorCode errorCode = snapshots_->getLatestFile()->Flush();
     if (errorCode != CSErrorCode::Success) {
-        LOG(ERROR) << "Paste data to chunk failed."
-                    << "ChunkID: " << chunkId_
-                    << ", offset: " << offset
-                    << ", length: " << length;
+        LOG(ERROR) << "Write data to chunk file failed."
+                   << "ChunkID: " << chunkId_
+                   << ",request sn: " << sn
+                   << ", latest sn: " << latestSn;
         return errorCode;
     }
     return CSErrorCode::Success;
 }
 
+CSErrorCode CSChunkFile::createSnapshot(SequenceNum sn, SequenceNum cloneFileId) {
+    if (snapshots_->contains(sn)) {
+        return CSErrorCode::Success;
+    }
+
+    // create snapshot
+    ChunkOptions options;
+    options.id = chunkId_;
+    options.sn = sn;
+    options.cloneFileId = cloneFileId;
+    options.baseDir = baseDir_;
+    options.chunkSize = size_;
+    options.pageSize = pageSize_;
+    options.metric = metric_;
+    options.enableOdsyncWhenOpenChunkFile = enableOdsyncWhenOpenChunkFile_;
+    auto snapshot = new (std::nothrow) CSSnapshot(lfs_,
+                                                   chunkFilePool_,
+                                                   options);
+    CHECK(snapshot != nullptr) << "Failed to new CSSnapshot!";
+    CSErrorCode errorCode = snapshot->Open(true);
+    if (errorCode != CSErrorCode::Success) {
+        delete snapshot;
+        snapshot = nullptr;
+        LOG(ERROR) << "Create snapshot failed."
+                   << "ChunkID: " << chunkId_
+                   << ",request sn: " << sn;
+        return errorCode;
+    }
+
+    snapshots_->insert(snapshot);
+    return CSErrorCode::Success;
+}
+
+CSErrorCode CSChunkFile::Sync() {
+    WriteLockGuard writeGuard(rwLock_);
+    return snapshots_->Sync();
+}
+
+CSErrorCode CSChunkFile::Paste(const char * buf, off_t offset, size_t length) {
+    return CSErrorCode::Success;
+}
+
 CSErrorCode CSChunkFile::Read(char * buf, off_t offset, size_t length) {
-    ReadLockGuard readGuard(rwLock_);
-    if (!CheckOffsetAndLength(
-            offset, length, isCloneChunk_ ? pageSize_ : FLAGS_minIoAlignment)) {
-        LOG(ERROR) << "Read chunk failed, invalid offset or length."
-                   << "ChunkID: " << chunkId_
-                   << ", offset: " << offset
-                   << ", length: " << length
-                   << ", page size: " << pageSize_
-                   << ", chunk size: " << size_
-                   << ", align: "
-                   << (isCloneChunk_ ? pageSize_ : FLAGS_minIoAlignment);
-        return CSErrorCode::InvalidArgError;
-    }
-
-    // If it is clonechunk, ensure that the read area has been written,
-    // otherwise an error is returned
-    if (isCloneChunk_) {
-        // The request above must be pagesize aligned
-        // the starting page index number of the paste area
-        uint32_t beginIndex = offset / pageSize_;
-        // the last page index number of the paste area
-        uint32_t endIndex = (offset + length - 1) / pageSize_;
-        if (metaPage_.bitmap->NextClearBit(beginIndex, endIndex)
-            != Bitmap::NO_POS) {
-            LOG(ERROR) << "Read chunk file failed, has page never written."
-                       << "ChunkID: " << chunkId_
-                       << ", offset: " << offset
-                       << ", length: " << length;
-            return CSErrorCode::PageNerverWrittenError;
-        }
-    }
-
-    int rc = readData(buf, offset, length);
-    if (rc < 0) {
-        LOG(ERROR) << "Read chunk file failed."
-                   << "ChunkID: " << chunkId_
-                   << ",chunk sn: " << metaPage_.sn;
-        return CSErrorCode::InternalError;
-    }
     return CSErrorCode::Success;
 }
 
 CSErrorCode CSChunkFile::ReadSpecifiedChunk(SequenceNum sn,
                                             char * buf,
                                             off_t offset,
-                                            size_t length)  {
+                                            size_t length,
+                                            std::shared_ptr<SnapContext> ctx)  {
     ReadLockGuard readGuard(rwLock_);
     if (!CheckOffsetAndLength(offset, length, pageSize_)) {
         LOG(ERROR) << "Read specified chunk failed, invalid offset or length."
@@ -540,98 +389,64 @@ CSErrorCode CSChunkFile::ReadSpecifiedChunk(SequenceNum sn,
                    << ", align: " << pageSize_;
         return CSErrorCode::InvalidArgError;
     }
-    // If the sequence equals the sequence of the current chunk,
-    // read the current chunk file
-    if (sn == metaPage_.sn) {
-        int rc = readData(buf, offset, length);
-        if (rc < 0) {
-            LOG(ERROR) << "Read chunk file failed."
-                       << "ChunkID: " << chunkId_
-                       << ",chunk sn: " << metaPage_.sn;
-            return CSErrorCode::InternalError;
-        }
-        return CSErrorCode::Success;
-    }
-
-    std::vector<BitRange> uncopiedRange;
-    CSErrorCode errCode = snapshots_->Read(sn, buf, offset, length, &uncopiedRange);
-    if (errCode != CSErrorCode::Success) {
-        return errCode;
-    }
-
-    off_t readOff;
-    size_t readSize;
-    // For uncopied extents, read chunk data
-    for (auto& range : uncopiedRange) {
-        readOff = range.beginIndex * pageSize_;
-        readSize = (range.endIndex - range.beginIndex + 1) * pageSize_;
-        int rc = readData(buf + (readOff - offset),
-                          readOff,
-                          readSize);
-        if (rc < 0) {
-            LOG(ERROR) << "Read chunk file failed. "
-                       << "ChunkID: " << chunkId_
-                       << ", chunk sn: " << metaPage_.sn;
-            return CSErrorCode::InternalError;
-        }
-    }
-    return CSErrorCode::Success;
+    return snapshots_->Read(sn, buf, offset, length, ctx);
 }
 
 CSErrorCode CSChunkFile::Delete(SequenceNum sn)  {
     WriteLockGuard writeGuard(rwLock_);
     // If sn is less than the current sequence of the chunk, can not be deleted
-    if (sn < metaPage_.sn) {
+    SequenceNum latestSn = snapshots_->getLatestFile()->GetSn();
+    if (sn < latestSn) {
         LOG(WARNING) << "Delete chunk failed, backward request."
                      << "ChunkID: " << chunkId_
                      << ", request sn: " << sn
-                     << ", chunk sn: " << metaPage_.sn;
+                     << ", latest sn: " << latestSn;
         return CSErrorCode::BackwardRequestError;
     }
 
-    // There should be no snapshots
-    if (snapshots_->getCurrentSn() != 0) {
-        LOG(WARNING) << "Delete chunk not allowed. There is snapshot."
-                     << "ChunkID: " << chunkId_
-                     << ", request sn: " << sn
-                     << ", snapshot sn: " << snapshots_->getCurrentSn();
-        return CSErrorCode::SnapshotExistError;
-    }
-
-    if (fd_ >= 0) {
-        lfs_->Close(fd_);
-        fd_ = -1;
-    }
-    int ret = chunkFilePool_->RecycleFile(path());
-    if (ret < 0)
-        return CSErrorCode::InternalError;
+    CSErrorCode ret = snapshots_->DeleteAll();
+    if (ret != CSErrorCode::Success)
+        return ret;
 
     LOG(INFO) << "Chunk deleted."
               << "ChunkID: " << chunkId_
-              << ", request sn: " << sn
-              << ", chunk sn: " << metaPage_.sn;
+              << ", latest sn: " << latestSn
+              << ", request sn: " << sn;
     return CSErrorCode::Success;
 }
 
+/**
+ * This method is not only used to delete snapshot created by user,
+ * but also used to delete innner snapshot which is created by mds 
+ * when file rollbacks. This inner snapshot has sn which equals to 
+ * the seqnum of the clonefile.
+*/
 CSErrorCode CSChunkFile::DeleteSnapshot(SequenceNum snapSn, std::shared_ptr<SnapContext> ctx) {
     WriteLockGuard writeGuard(rwLock_);
 
-    // If it is a clone chunk, theoretically this interface should not be called
-    if (isCloneChunk_) {
-        LOG(ERROR) << "Delete snapshot failed, this is a clone chunk."
-                   << "ChunkID: " << chunkId_;
-        return CSErrorCode::StatusConflictError;
+    // It means deleting inner snapshot. Theoretically there's at most only working
+    // chunk left within the clone file and we only need to delete that chunk.
+    if (ctx->getCloneFileInfo(snapSn).seqnum() == snapSn) {
+        return snapshots_->DeleteWorkingChunk(snapSn, ctx);
     }
 
+    if (!snapshots_->contains(snapSn)) {
+        return CSErrorCode::Success;
+    }
+    CSSnapshot* curFile = snapshots_->getCurrentFile(snapSn, ctx);
+    if (!curFile) {
+        LOG(ERROR) << "DeleteSnapshot sn " << snapSn << " find no working chunk, which should not happen!";
+        return CSErrorCode::InternalError;
+    }
     /*
-     * If chunk.sn>snap.sn, then this snapshot is either a historical snapshot,
-     * or a snapshot of the current sequence of the chunk,
-     * in this case the snapshot is allowed to be deleted.
-     * If chunk.sn<=snap.sn, then this snapshot must be generated after the
-     * current delete operation. The current delete operation is the historical
-     * log of playback, and deletion is not allowed in this case.
-     */
-    if(snapshots_->contains(snapSn) && metaPage_.sn > snapshots_->getCurrentSn()){
+     * If sn of the snapshot to be deleted is equal or larger than the sn of current working 
+     * chunk, it means no COW generated at this snapshot and thus no need to delete.
+     * Under this circumstance, there will be snapshot which resides in snapshots_ but not in ctx.
+     * For example, current working chunk (chunk with largest sn) in snapshots_ has sn of value 3,
+     * and the snaps in ctx is {1,2,3,4}, a snapshot deletion with sn = 3 will delete nothing in
+     * snapshot_ and ctx becomes {1,2,4}, resulting snapshot of sn 3 in snapshots_ but not in ctx.
+    */
+    if (curFile->GetSn() > snapSn) {
         return snapshots_->Delete(this, snapSn, ctx);
     }
     return CSErrorCode::Success;
@@ -639,23 +454,8 @@ CSErrorCode CSChunkFile::DeleteSnapshot(SequenceNum snapSn, std::shared_ptr<Snap
 
 void CSChunkFile::GetInfo(CSChunkInfo* info)  {
     ReadLockGuard readGuard(rwLock_);
-    info->chunkId = chunkId_;
-    info->pageSize = pageSize_;
-    info->chunkSize = size_;
-    info->curSn = metaPage_.sn;
-    info->correctedSn = metaPage_.correctedSn;
-    info->snapSn = snapshots_->getCurrentSn();
-    info->isClone = isCloneChunk_;
-    info->location = metaPage_.location;
-    // There will be a memcpy, otherwise you need to lock the bitmap operation.
-    // This step exists on the critical path of ReadChunk, which has certain
-    // requirements for performance.
-    // TODO(yyk) needs to evaluate which method performs better.
-    if (metaPage_.bitmap != nullptr)
-        info->bitmap = std::make_shared<Bitmap>(metaPage_.bitmap->Size(),
-                                                metaPage_.bitmap->GetBitmap());
-    else
-        info->bitmap = nullptr;
+    // TODO: this method no use anymore, should be deleted
+    return;
 }
 
 CSErrorCode CSChunkFile::GetHash(off_t offset,
@@ -669,11 +469,16 @@ CSErrorCode CSChunkFile::GetHash(off_t offset,
         return CSErrorCode::InternalError;
     }
 
-    int rc = lfs_->Read(fd_, buf, offset, length);
+    CSSnapshot* file = snapshots_->getLatestFile();
+    if (nullptr == file) {
+        return CSErrorCode::ChunkNotExistError;
+    }
+
+    int rc = file->Read(buf, offset, length);
     if (rc < 0) {
         LOG(ERROR) << "Read chunk file failed."
-                   << "ChunkID: " << chunkId_
-                   << ",chunk sn: " << metaPage_.sn;
+                   << "latest sn: " << file->GetSn()
+                   << "ChunkID: " << chunkId_;
         delete[] buf;
         return CSErrorCode::InternalError;
     }
@@ -687,18 +492,16 @@ CSErrorCode CSChunkFile::GetHash(off_t offset,
 }
 
 bool CSChunkFile::needCreateSnapshot(SequenceNum sn, std::shared_ptr<SnapContext> ctx) {
-    // ad-hoc hack.  clone chunk cannot create snapshot
-    if (isCloneChunk_)
-        return sn > std::max(metaPage_.correctedSn, metaPage_.sn);
-    return !ctx->empty() && !snapshots_->contains(ctx->getLatest());
+    return !ctx->empty(sn) && !snapshots_->contains(ctx->getLatest(sn));
 }
 
 bool CSChunkFile::needCow(SequenceNum sn, std::shared_ptr<SnapContext> ctx) {
     // There is no snapshots thus no need to do cow
-    if (ctx->empty())
+    if (ctx->empty(sn))
         return false;
 
-    SequenceNum chunkSn = std::max(ctx->getLatest(), metaPage_.sn);
+    SequenceNum latestSn = snapshots_->getLatestFile()->GetSn();
+    SequenceNum chunkSn = std::max(ctx->getLatest(sn), latestSn);
     // Requests smaller than chunkSn will be rejected directly
     if (sn < chunkSn)
         return false;
@@ -722,49 +525,23 @@ bool CSChunkFile::needCow(SequenceNum sn, std::shared_ptr<SnapContext> ctx) {
     // downloading
     // Since follower downloads the chunk file first, and then downloads the
     // snapshot file, so at this time metaPage_.sn<=snap.sn
-    if (sn != metaPage_.sn || metaPage_.sn <= snapshots_->getCurrentSn()) {
-        LOG(WARNING) << "May be a log repaly opt after an unexpected restart."
+    if (sn != latestSn || latestSn <= snapshots_->getCurrentSnapSn(sn, ctx)) {
+        LOG(WARNING) << "May be a log replay opt after an unexpected restart."
                      << "Request sn: " << sn
-                     << ", chunk sn: " << metaPage_.sn
-                     << ", snapshot sn: " << snapshots_->getCurrentSn();
+                     << ", latest sn: " << latestSn
+                     << ", snapshot sn: " << snapshots_->getCurrentSnapSn(sn, ctx);
         return false;
     }
     return true;
 }
 
-CSErrorCode CSChunkFile::updateMetaPage(ChunkFileMetaPage* metaPage) {
-    char buf[pageSize_];  // NOLINT
-    memset(buf, 0, sizeof(buf));
-    metaPage->encode(buf);
-    int rc = writeMetaPage(buf);
-    if (rc < 0) {
-        LOG(ERROR) << "Update metapage failed."
-                   << "ChunkID: " << chunkId_
-                   << ",chunk sn: " << metaPage_.sn;
-        return CSErrorCode::InternalError;
-    }
-    return CSErrorCode::Success;
-}
-
-CSErrorCode CSChunkFile::loadMetaPage() {
-    char buf[pageSize_];  // NOLINT
-    memset(buf, 0, sizeof(buf));
-    int rc = readMetaPage(buf);
-    if (rc < 0) {
-        LOG(ERROR) << "Error occured when reading metaPage_."
-                   << " filepath = " << path();
-        return CSErrorCode::InternalError;
-    }
-    return metaPage_.decode(buf);
-}
-
-CSErrorCode CSChunkFile::copy2Snapshot(off_t offset, size_t length) {
+CSErrorCode CSChunkFile::copy2Snapshot(off_t offset, size_t length, SequenceNum sn, std::shared_ptr<SnapContext> ctx) {
     // Get the uncopied area in the snapshot file
     uint32_t pageBeginIndex = offset / pageSize_;
     uint32_t pageEndIndex = (offset + length - 1) / pageSize_;
     std::vector<BitRange> uncopiedRange;
-    CSSnapshot* snapshot_ = snapshots_->getCurrentSnapshot();
-    std::shared_ptr<const Bitmap> snapBitmap = snapshot_->GetPageStatus();
+    CSSnapshot* snapshot = snapshots_->getCurrentSnapshot(sn, ctx);
+    std::shared_ptr<const Bitmap> snapBitmap = snapshot->GetPageStatus();
     snapBitmap->Divide(pageBeginIndex,
                        pageEndIndex,
                        &uncopiedRange,
@@ -773,78 +550,48 @@ CSErrorCode CSChunkFile::copy2Snapshot(off_t offset, size_t length) {
     CSErrorCode errorCode = CSErrorCode::Success;
     off_t copyOff;
     size_t copySize;
-    // Read the uncopied area from the chunk file
+    // Read the uncopied area from the working chunk
     // and write it to the snapshot file
     for (auto& range : uncopiedRange) {
         copyOff = range.beginIndex * pageSize_;
         copySize = (range.endIndex - range.beginIndex + 1) * pageSize_;
         std::shared_ptr<char> buf(new char[copySize],
                                   std::default_delete<char[]>());
-        int rc = readData(buf.get(),
-                          copyOff,
-                          copySize);
+
+        int rc = snapshots_->Read(sn, buf.get(), copyOff, copySize, ctx);
         if (rc < 0) {
             LOG(ERROR) << "Read from chunk file failed."
-                       << "ChunkID: " << chunkId_
-                       << ",chunk sn: " << metaPage_.sn;
+                       << "ChunkID: " << chunkId_;
             return CSErrorCode::InternalError;
         }
-        errorCode = snapshot_->Write(buf.get(), copyOff, copySize);
+        errorCode = snapshot->Write(buf.get(), copyOff, copySize);
         if (errorCode != CSErrorCode::Success) {
             LOG(ERROR) << "Write to snapshot failed."
                        << "ChunkID: " << chunkId_
-                       << ",chunk sn: " << metaPage_.sn
-                       << ",snapshot sn: " << snapshot_->GetSn();
+                       << ",snapshot sn: " << snapshot->GetSn();
             return errorCode;
         }
     }
     // If the snapshot file has been written,
     // you need to call Flush to persist the metapage
     if (uncopiedRange.size() > 0) {
-        errorCode = snapshot_->Flush();
+        errorCode = snapshot->Flush();
         if (errorCode != CSErrorCode::Success) {
             LOG(ERROR) << "Flush snapshot metapage failed."
                         << "ChunkID: " << chunkId_
-                        << ",chunk sn: " << metaPage_.sn
-                        << ",snapshot sn: " << snapshot_->GetSn();
+                        << ",snapshot sn: " << snapshot->GetSn();
             return errorCode;
         }
     }
     return CSErrorCode::Success;
 }
 
-CSErrorCode CSChunkFile::flush() {
-    ChunkFileMetaPage tempMeta = metaPage_;
-    bool needUpdateMeta = dirtyPages_.size() > 0;
-    bool clearClone = false;
-    for (auto pageIndex : dirtyPages_) {
-        tempMeta.bitmap->Set(pageIndex);
-    }
-    if (isCloneChunk_) {
-        // If all pages have been written, mark the Chunk as a non-clone chunk
-        if (tempMeta.bitmap->NextClearBit(0) == Bitmap::NO_POS) {
-            tempMeta.location = "";
-            tempMeta.bitmap = nullptr;
-            needUpdateMeta = true;
-            clearClone = true;
-        }
-    }
-    if (needUpdateMeta) {
-        CSErrorCode errorCode = updateMetaPage(&tempMeta);
-        if (errorCode != CSErrorCode::Success) {
-            LOG(ERROR) << "Update metapage failed."
-                        << "ChunkID: " << chunkId_
-                        << ",chunk sn: " << metaPage_.sn;
-            return errorCode;
-        }
-        metaPage_.bitmap = tempMeta.bitmap;
-        metaPage_.location = tempMeta.location;
-        dirtyPages_.clear();
-        if (clearClone) {
-            if (metric_ != nullptr) {
-                metric_->cloneChunkCount << -1;
-            }
-            isCloneChunk_ = false;
+CSErrorCode CSChunkFile::createChunkIfNotExist(SequenceNum sn, std::shared_ptr<SnapContext> ctx) {
+    if (nullptr == snapshots_->getCurrentFile(sn, ctx)) {
+        // this newly created snapshot is the "working chunk"
+        CSErrorCode err = createSnapshot(sn, ctx->getCloneFileInfo(sn).id());
+        if (err != CSErrorCode::Success) {
+            return err;
         }
     }
     return CSErrorCode::Success;

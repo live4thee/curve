@@ -34,6 +34,7 @@
 #include "src/chunkserver/datastore/file_pool.h"
 #include "src/chunkserver/uri_paser.h"
 #include "src/chunkserver/raftsnapshot/curve_snapshot_storage.h"
+#include "src/chunkserver/raftsnapshot/curve_file_service.h"
 
 using curve::chunkserver::CopysetNodeOptions;
 using curve::chunkserver::Configuration;
@@ -138,6 +139,7 @@ int main(int argc, char *argv[]) {
 
     std::shared_ptr<LocalFileSystem>
         fs(LocalFsFactory::CreateFs(FileSystemType::EXT4, ""));
+    curve::chunkserver::kCurveFileService.set_snapshot_attachment(new curve::chunkserver::CurveSnapshotAttachment(fs));
     const uint32_t kMaxChunkSize = 16 * 1024 * 1024;
     // TODO(yyk) 这部分实现不太优雅，后续进行重构
     std::string copysetUri = FLAGS_copyset_dir + "/copysets";

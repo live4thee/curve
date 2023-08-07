@@ -169,7 +169,7 @@ TEST_F(BasicTestSuit, BasicTest) {
                                        offset,
                                        length,
                                        nullptr,
-                                       SnapContext::build_empty());
+                                       SnapContext::build_empty(sn));
     ASSERT_EQ(errorCode, CSErrorCode::Success);
 
     // 没被写过的区域也可以读，但是不保证读到的数据内容

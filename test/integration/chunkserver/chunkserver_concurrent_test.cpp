@@ -278,6 +278,7 @@ int WriteChunk(Peer leader,
     request.set_sn(sn);
     request.set_offset(offset);
     request.set_size(len);
+    request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
     cntl.request_attachment().append(data, len);
     stub.WriteChunk(&cntl, &request, &response, nullptr);
 
@@ -329,6 +330,7 @@ void RandReadChunk(Peer leader,
         // 随机选择一个offset
         uint64_t pageIndex = butil::fast_rand_less_than(kChunkSize / kPageSize);
         request.set_offset(pageIndex * kPageSize);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
 
         stub.ReadChunk(&cntl, &request, &response, nullptr);
 
@@ -379,6 +381,7 @@ void RandWriteChunk(Peer leader,
         request.set_chunkid(chunkId);
         request.set_sn(sn);
         request.set_size(kOpRequestAlignSize);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         cntl.request_attachment().append(data, length);
 
         // 随机选择一个offset
@@ -634,6 +637,7 @@ TEST_F(ChunkServerConcurrentNotFromFilePoolTest, WriteOneChunkOnTheSameOffset) {
     request.set_size(length);
     request.set_appliedindex(1);
     request.set_offset(offset);
+    request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(1));
     stub.ReadChunk(&cntl, &request, &response, nullptr);
 
     ASSERT_FALSE(cntl.Failed());
@@ -1115,6 +1119,7 @@ TEST_F(ChunkServerConcurrentFromFilePoolTest, WriteOneChunkOnTheSameOffset) {   
     request.set_size(length);
     request.set_appliedindex(1);
     request.set_offset(offset);
+    request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(1));
     stub.ReadChunk(&cntl, &request, &response, nullptr);
 
     ASSERT_FALSE(cntl.Failed());

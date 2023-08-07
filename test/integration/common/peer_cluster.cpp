@@ -435,6 +435,7 @@ void WriteThenReadVerify(Peer leaderPeer,
             request.set_offset(length * i);
             request.set_size(length);
             request.set_sn(sn);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             cntl.request_attachment().resize(length, fillCh);
             stub.WriteChunk(&cntl, &request, &response, nullptr);
             LOG_IF(INFO, cntl.Failed()) << "error msg: "
@@ -457,6 +458,7 @@ void WriteThenReadVerify(Peer leaderPeer,
             request.set_offset(length * i);
             request.set_size(length);
             request.set_sn(sn);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             stub.ReadChunk(&cntl, &request, &response, nullptr);
             LOG_IF(INFO, cntl.Failed()) << "error msg: "
                                         << cntl.ErrorCode() << " : "
@@ -506,6 +508,7 @@ void ReadVerify(Peer leaderPeer,
         request.set_offset(length * i);
         request.set_size(length);
         request.set_sn(sn);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         stub.ReadChunk(&cntl, &request, &response, nullptr);
         LOG_IF(INFO, cntl.Failed()) << "error msg: "
                                     << cntl.ErrorCode() << " : "
@@ -662,6 +665,7 @@ void ReadNotVerify(Peer leaderPeer,
         request.set_offset(length * i);
         request.set_size(length);
         request.set_sn(sn);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         stub.ReadChunk(&cntl, &request, &response, nullptr);
         LOG_IF(INFO, cntl.Failed()) << "error msg: "
                                     << cntl.ErrorCode() << " : "
@@ -710,6 +714,7 @@ void ReadVerifyNotAvailable(Peer leaderPeer,
         request.set_offset(length * i);
         request.set_size(length);
         request.set_sn(sn);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         stub.ReadChunk(&cntl, &request, &response, nullptr);
         LOG_IF(INFO, cntl.Failed()) << "error msg: "
                                     << cntl.ErrorCode() << " : "
@@ -756,6 +761,7 @@ void WriteVerifyNotAvailable(Peer leaderPeer,
         request.set_offset(length * i);
         request.set_size(length);
         request.set_sn(sn);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         cntl.request_attachment().resize(length, fillCh);
         stub.WriteChunk(&cntl, &request, &response, nullptr);
         LOG_IF(INFO, cntl.Failed()) << "error msg: "

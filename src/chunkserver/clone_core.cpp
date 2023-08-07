@@ -270,7 +270,8 @@ int CloneCore::ReadChunk(std::shared_ptr<ReadChunkRequest> readRequest) {
                                      request->sn(),
                                      chunkData.get(),
                                      offset,
-                                     length);
+                                     length,
+                                     SnapContext::build_empty(request->sn()));
     if (CSErrorCode::Success != errorCode) {
         SetResponse(readRequest,
                     CHUNK_OP_STATUS::CHUNK_OP_STATUS_FAILURE_UNKNOWN);
@@ -392,7 +393,8 @@ int CloneCore::ReadThenMerge(std::shared_ptr<ReadChunkRequest> readRequest,
                                          request->sn(),
                                          chunkData + relativeOff,
                                          readOff,
-                                         readSize);
+                                         readSize,
+                                         SnapContext::build_empty(request->sn()));
         if (CSErrorCode::Success != errorCode) {
             LOG(ERROR) << "read chunk failed: "
                        << " logic pool id: " << request->logicpoolid()

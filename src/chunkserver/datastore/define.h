@@ -36,7 +36,8 @@ class ChunkRequest;
 
 using curve::common::Bitmap;
 
-const uint8_t FORMAT_VERSION = 1;
+// const uint8_t FORMAT_VERSION = 1;
+const uint8_t FORMAT_VERSION = 2;  // format for instant rollback
 const SequenceNum kInvalidSeq = 0;
 
 DECLARE_uint32(minIoAlignment);
@@ -105,8 +106,6 @@ struct CSChunkInfo {
                   , pageSize(4096)
                   , chunkSize(16 * 4096 * 4096)
                   , curSn(0)
-                  , snapSn(0)
-                  , correctedSn(0)
                   , isClone(false)
                   , location("")
                   , bitmap(nullptr) {}
@@ -116,8 +115,6 @@ struct CSChunkInfo {
             pageSize != rhs.pageSize ||
             chunkSize != rhs.chunkSize ||
             curSn != rhs.curSn ||
-            snapSn != rhs.snapSn ||
-            correctedSn != rhs.correctedSn ||
             isClone != rhs.isClone ||
             location != rhs.location) {
             return false;
@@ -140,26 +137,72 @@ struct CSChunkInfo {
     }
 };
 
+
+
 class SnapContext {
  public:
-    SnapContext(const std::vector<SequenceNum>& snaps);
+    SnapContext(const CloneFileInfos& cloneFileInfos);
     virtual ~SnapContext() = default;
 
-    static std::shared_ptr<SnapContext> build_empty() {
-        std::shared_ptr<SnapContext> ptr(new SnapContext());
-        return ptr;
+    static std::shared_ptr<SnapContext> build_empty(SequenceNum sn) {
+        CloneFileInfos infos;
+        infos.set_seqnum(sn);
+        CloneFileInfo info;
+        info.set_id(1);
+        info.set_seqnum(sn);
+        info.set_recoversource(0);
+        auto clone = infos.add_clones();
+        clone->CopyFrom(info);
+        return std::make_shared<SnapContext>(infos);
     }
 
-    SequenceNum getNext(SequenceNum snapSn) const;
-    SequenceNum getPrev(SequenceNum snapSn) const;
-    SequenceNum getLatest() const;
-    bool contains(SequenceNum snapSn) const;
-    bool empty() const;
+    /**
+     * Get first snapshot sequence num smaller than sn within the specified clone file
+     * @param sn: the sequence num to compare and to specify the clone file
+     * @return: return the result snap
+    */    
+    SequenceNum getPrev(SequenceNum sn) const;
+    /**
+     * Get latest snapshot sequence num within the specified clone file
+     * @param sn: the sequence num to specify the clone file
+     * @return: return the result snap
+    */    
+    SequenceNum getLatest(SequenceNum sn) const;
+    /**
+     * Judge if a sequence num is contained in the specified clone file
+     * @param sn: the sequence num to judge
+     * @return: return the judge result 
+    */  
+    bool contains(SequenceNum sn) const;
+    /**
+     * Judge if the specified clone file has snaps
+     * @param sn: the sequence num to specify the clone file
+     * @return: return the judge result 
+    */  
+    bool empty(SequenceNum sn) const;
+    /**
+     * Get the clone file where the sequence num belongs to,
+     * or return the default empty clone file if not found
+     * @param sn: the sequence num to check
+     * @return: return the clone file info
+    */    
+    CloneFileInfo getCloneFileInfo(SequenceNum sn) const;
+    /**
+     * Get the clone file infos, mainly for debugging
+     * @return: return the clone file infos
+    */    
+    CloneFileInfos getCloneFileInfos() const;
+    /**
+     * Get the sequence num of the current working file, i.e. the
+     * maximum sequence num
+     * @return: return the result 
+    */
+    SequenceNum getCurrentFileSn() const;
 
- private:
+
+ protected:
     SnapContext() = default;
-    // existing snapshot sequences, in descending order.
-    std::vector<SequenceNum> snaps;
+    CloneFileInfos cloneFileInfos_;
 };
 
 }  // namespace chunkserver

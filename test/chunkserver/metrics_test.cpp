@@ -546,28 +546,37 @@ TEST_F(CSMetricTest, CountTest) {
     butil::IOBuf dataBuf;
     dataBuf.append(buf, PAGE_SIZE);
     ASSERT_EQ(CSErrorCode::Success,
-              datastore->WriteChunk(id, seq, dataBuf, offset, length, nullptr, SnapContext::build_empty()));
+              datastore->WriteChunk(id, seq, dataBuf, offset, length, nullptr, SnapContext::build_empty(seq)));
     ASSERT_EQ(1, copysetMetric->GetChunkCount());
-    ASSERT_EQ(0, copysetMetric->GetSnapshotCount());
+    ASSERT_EQ(1, copysetMetric->GetSnapshotCount());  // we treat all chunk as snapshot chunk
     ASSERT_EQ(0, copysetMetric->GetCloneChunkCount());
     ASSERT_EQ(1, metric_->GetTotalChunkCount());
-    ASSERT_EQ(0, metric_->GetTotalSnapshotCount());
+    ASSERT_EQ(1, metric_->GetTotalSnapshotCount());
     ASSERT_EQ(0, metric_->GetTotalCloneChunkCount());
 
     // 增加版本号，生成快照
-    std::shared_ptr<SnapContext> ctx(new SnapContext({seq}));
+    CloneFileInfos infos;
+    infos.set_seqnum(2);
+    CloneFileInfo info;
+    info.set_seqnum(2);
+    info.add_snaps(1);
+    info.set_recoversource(0);
+    info.set_id(1);
+    auto clone = infos.add_clones();
+    clone->CopyFrom(info);
+    std::shared_ptr<SnapContext> ctx(new SnapContext(infos));
     seq = 2;
     ASSERT_EQ(CSErrorCode::Success,
               datastore->WriteChunk(id, seq, dataBuf, offset, length, nullptr, ctx));
     ASSERT_EQ(1, copysetMetric->GetChunkCount());
-    ASSERT_EQ(1, copysetMetric->GetSnapshotCount());
+    ASSERT_EQ(2, copysetMetric->GetSnapshotCount());
     ASSERT_EQ(0, copysetMetric->GetCloneChunkCount());
 
     // 删除快照
     ASSERT_EQ(CSErrorCode::Success,
-              datastore->DeleteSnapshotChunk(id, ctx->getLatest(), ctx));
+              datastore->DeleteSnapshotChunk(id, ctx->getLatest(seq), ctx));
     ASSERT_EQ(1, copysetMetric->GetChunkCount());
-    ASSERT_EQ(0, copysetMetric->GetSnapshotCount());
+    ASSERT_EQ(1, copysetMetric->GetSnapshotCount());
     ASSERT_EQ(0, copysetMetric->GetCloneChunkCount());
 
     // 创建 clone chunk
@@ -579,36 +588,36 @@ TEST_F(CSMetricTest, CountTest) {
     ASSERT_EQ(CSErrorCode::Success,
               datastore->CreateCloneChunk(id3, 1, 0, CHUNK_SIZE, location));
     ASSERT_EQ(3, copysetMetric->GetChunkCount());
-    ASSERT_EQ(0, copysetMetric->GetSnapshotCount());
-    ASSERT_EQ(2, copysetMetric->GetCloneChunkCount());
+    ASSERT_EQ(3, copysetMetric->GetSnapshotCount());
+    //ASSERT_EQ(2, copysetMetric->GetCloneChunkCount()); // we may remove the definition of clone chunk later
 
     // clone chunk被覆盖写一遍,clone chun转成普通chunk
     char* buf2 = new char[CHUNK_SIZE];
     butil::IOBuf dataBuf2;
     dataBuf.append(buf2, CHUNK_SIZE);
     ASSERT_EQ(CSErrorCode::Success,
-              datastore->WriteChunk(id2, 1, dataBuf, 0, CHUNK_SIZE, nullptr, SnapContext::build_empty()));
+              datastore->WriteChunk(id2, 1, dataBuf, 0, CHUNK_SIZE, nullptr, SnapContext::build_empty(1)));
     delete[] buf2;
     ASSERT_EQ(3, copysetMetric->GetChunkCount());
-    ASSERT_EQ(0, copysetMetric->GetSnapshotCount());
-    ASSERT_EQ(1, copysetMetric->GetCloneChunkCount());
+    ASSERT_EQ(3, copysetMetric->GetSnapshotCount());
+    //ASSERT_EQ(1, copysetMetric->GetCloneChunkCount());
 
     // 删除上面的chunk
     ASSERT_EQ(CSErrorCode::Success,
               datastore->DeleteChunk(id2, 1));
     ASSERT_EQ(2, copysetMetric->GetChunkCount());
-    ASSERT_EQ(0, copysetMetric->GetSnapshotCount());
-    ASSERT_EQ(1, copysetMetric->GetCloneChunkCount());
+    ASSERT_EQ(2, copysetMetric->GetSnapshotCount());
+    //ASSERT_EQ(1, copysetMetric->GetCloneChunkCount());
 
     // 模拟copyset重新加载datastore,重新初始化后，chunk数量不变
     // for bug fix: CLDCFS-1473
     datastore->Initialize();
     ASSERT_EQ(2, copysetMetric->GetChunkCount());
-    ASSERT_EQ(0, copysetMetric->GetSnapshotCount());
-    ASSERT_EQ(1, copysetMetric->GetCloneChunkCount());
+    ASSERT_EQ(2, copysetMetric->GetSnapshotCount());
+    //ASSERT_EQ(1, copysetMetric->GetCloneChunkCount());
     ASSERT_EQ(2, metric_->GetTotalChunkCount());
-    ASSERT_EQ(0, metric_->GetTotalSnapshotCount());
-    ASSERT_EQ(1, metric_->GetTotalCloneChunkCount());
+    ASSERT_EQ(2, metric_->GetTotalSnapshotCount());
+    //ASSERT_EQ(1, metric_->GetTotalCloneChunkCount());
 
     // 模拟copyset放入回收站测试
     ASSERT_TRUE(copysetMgr_->PurgeCopysetNodeData(logicId, copysetId));

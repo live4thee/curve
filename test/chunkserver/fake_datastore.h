@@ -65,7 +65,7 @@ class FakeCSDataStore : public CSDataStore {
         return true;
     }
 
-    CSErrorCode DeleteChunk(ChunkID id, SequenceNum sn, std::shared_ptr<SnapContext> ctx) override {
+    CSErrorCode DeleteChunk(ChunkID id, SequenceNum sn) override {
         CSErrorCode errorCode = HasInjectError();
         if (errorCode != CSErrorCode::Success) {
             return errorCode;
@@ -97,7 +97,8 @@ class FakeCSDataStore : public CSDataStore {
                           SequenceNum sn,
                           char *buf,
                           off_t offset,
-                          size_t length) override {
+                          size_t length,
+                          std::shared_ptr<SnapContext> ctx) override {
         CSErrorCode errorCode = HasInjectError();
         if (errorCode != CSErrorCode::Success) {
             return errorCode;

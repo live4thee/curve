@@ -407,6 +407,9 @@ class CopysetNode : public braft::StateMachine,
                                   ::braft::Closure *done);
 
     void ShipToSync(ChunkID chunkId) {
+        // zzw fix: just return when enableOdsyncWhenOpenChunkFile_ is true
+        if (enableOdsyncWhenOpenChunkFile_)
+            return;
         curve::common::LockGuard lg(chunkIdsLock_);
         chunkIdsToSync_.push_back(chunkId);
     }

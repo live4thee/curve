@@ -197,6 +197,7 @@ TEST_F(ChunkService2Test, illegial_parameters_test) {
         request.set_sn(sn);
         request.set_offset(kOpRequestAlignSize);
         request.set_size(kMaxChunkSize);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         stub.ReadChunk(&cntl, &request, &response, nullptr);
         ASSERT_FALSE(cntl.Failed());
         ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_INVALID_REQUEST,
@@ -215,6 +216,7 @@ TEST_F(ChunkService2Test, illegial_parameters_test) {
         request.set_sn(sn);
         request.set_offset(kOpRequestAlignSize - 1);
         request.set_size(kOpRequestAlignSize);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         stub.ReadChunk(&cntl, &request, &response, nullptr);
         ASSERT_FALSE(cntl.Failed());
         ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_INVALID_REQUEST,
@@ -233,6 +235,7 @@ TEST_F(ChunkService2Test, illegial_parameters_test) {
         request.set_sn(sn);
         request.set_offset(0);
         request.set_size(kOpRequestAlignSize - 1);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         stub.ReadChunk(&cntl, &request, &response, nullptr);
         ASSERT_FALSE(cntl.Failed());
         ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_INVALID_REQUEST,
@@ -252,6 +255,7 @@ TEST_F(ChunkService2Test, illegial_parameters_test) {
         request.set_offset(0);
         request.set_size(kOpRequestAlignSize);
         request.set_sn(sn);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         stub.ReadChunk(&cntl, &request, &response, nullptr);
         ASSERT_FALSE(cntl.Failed());
         ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_COPYSET_NOTEXIST,
@@ -345,6 +349,7 @@ TEST_F(ChunkService2Test, illegial_parameters_test) {
         request.set_offset(kMaxChunkSize);
         request.set_size(kOpRequestAlignSize);
         request.set_sn(sn);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         cntl.request_attachment().resize(kOpRequestAlignSize, 'a');
         stub.WriteChunk(&cntl, &request, &response, nullptr);
         ASSERT_FALSE(cntl.Failed());
@@ -364,6 +369,7 @@ TEST_F(ChunkService2Test, illegial_parameters_test) {
         request.set_sn(sn);
         request.set_offset(kOpRequestAlignSize - 1);
         request.set_size(kOpRequestAlignSize);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         cntl.request_attachment().resize(kOpRequestAlignSize, 'a');
         stub.WriteChunk(&cntl, &request, &response, nullptr);
         ASSERT_FALSE(cntl.Failed());
@@ -383,6 +389,7 @@ TEST_F(ChunkService2Test, illegial_parameters_test) {
         request.set_sn(sn);
         request.set_offset(kOpRequestAlignSize);
         request.set_size(kOpRequestAlignSize - 1);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         cntl.request_attachment().resize(kOpRequestAlignSize - 1, 'a');
         stub.WriteChunk(&cntl, &request, &response, nullptr);
         ASSERT_FALSE(cntl.Failed());
@@ -402,6 +409,7 @@ TEST_F(ChunkService2Test, illegial_parameters_test) {
         request.set_sn(sn);
         request.set_offset(0);
         request.set_size(kOpRequestAlignSize);
+        request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
         cntl.request_attachment().resize(kOpRequestAlignSize, 'a');
         stub.WriteChunk(&cntl, &request, &response, nullptr);
         ASSERT_FALSE(cntl.Failed());
@@ -495,6 +503,7 @@ TEST_F(ChunkService2Test, illegial_parameters_test) {
             request.set_sn(sn);
             request.set_offset(0);
             request.set_size(kOpRequestAlignSize);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             cntl.request_attachment().resize(kOpRequestAlignSize, 'a');
             stub.WriteChunk(&cntl, &request, &response, nullptr);
             ASSERT_FALSE(cntl.Failed());
@@ -516,6 +525,7 @@ TEST_F(ChunkService2Test, illegial_parameters_test) {
             request.set_sn(sn);
             request.set_offset(0);
             request.set_size(kOpRequestAlignSize);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             stub.ReadChunk(&cntl, &request, &response, nullptr);
             ASSERT_FALSE(cntl.Failed());
             ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_REDIRECTED,
@@ -537,6 +547,7 @@ TEST_F(ChunkService2Test, illegial_parameters_test) {
             request.set_offset(0);
             request.set_size(kOpRequestAlignSize);
             request.set_appliedindex(1);
+            request.mutable_clonefileinfos()->CopyFrom(buildCloneFileInfos(sn));
             stub.ReadChunk(&cntl, &request, &response, nullptr);
             ASSERT_FALSE(cntl.Failed());
             ASSERT_EQ(CHUNK_OP_STATUS::CHUNK_OP_STATUS_REDIRECTED,

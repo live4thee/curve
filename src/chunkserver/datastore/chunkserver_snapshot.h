@@ -27,6 +27,7 @@
 #include <string>
 #include <memory>
 #include <set>
+#include <map>
 
 #include "src/common/bitmap.h"
 #include "src/common/crc32.h"
@@ -64,6 +65,8 @@ struct SnapshotMetaPage {
     bool damaged;
     // Snapshot sequence number
     SequenceNum sn;
+    // Id of the clone file where this chunk belongs to
+    SequenceNum cloneFileId;
     // bitmap  representing the current snapshot page status
     std::shared_ptr<Bitmap> bitmap;
 
@@ -102,6 +105,10 @@ class CSSnapshot {
      * @return: return error code
      */
     CSErrorCode Write(const char * buf, off_t offset, size_t length);
+    CSErrorCode Write(const butil::IOBuf& buf, off_t offset, size_t length);
+
+    CSErrorCode Sync();
+
     /**
      * Read the snapshot data, according to the bitmap to determine whether to read the data from the chunk file
      * @param buf: Snapshot data read
@@ -132,6 +139,11 @@ class CSSnapshot {
      * @return: return bitmap
      */
     std::shared_ptr<const Bitmap> GetPageStatus() const;
+    /**
+     * Get the cloneFileId of the snapshot
+     * @return: return the recoversource sn
+    */
+    SequenceNum GetCloneFileId() const;
 
  private:
     /**
@@ -181,6 +193,13 @@ class CSSnapshot {
         return lfs_->Write(fd_, buf, offset + pageSize_, length);
     }
 
+    inline int writeData(const butil::IOBuf& buf, off_t offset, size_t length) {
+        return lfs_->Write(fd_, buf, offset + pageSize_, length);
+    }
+
+    inline int SyncData() {
+        return lfs_->Sync(fd_);
+    }
  private:
     // Snapshot file descriptor
     int fd_;
@@ -204,28 +223,67 @@ class CSSnapshot {
     std::shared_ptr<FilePool> chunkFilePool_;
     // datastore internal statistical indicators
     std::shared_ptr<DataStoreMetric> metric_;
+    // enable O_DSYNC When Open ChunkFile
+    bool enableOdsyncWhenOpenChunkFile_;
 };
 
 class CSSnapshots {
  public:
     CSSnapshots(PageSizeType size): pageSize_(size) {}
-    bool insert(CSSnapshot* s);
+    void insert(CSSnapshot* s);
     CSSnapshot* pop(SequenceNum sn);
     bool contains(SequenceNum sn) const;
-    SequenceNum getCurrentSn() const;
-    CSSnapshot* getCurrentSnapshot();
-    CSErrorCode Read(SequenceNum sn, char * buf, off_t offset, size_t length, vector<BitRange>* clearRanges);
+    CSSnapshot* get(SequenceNum sn);
+    /**
+     * Get the sequence num of the latest existing snapshot within the specified clone file.
+     * Note that this snapshot may be under deletion and not deleted yet
+     * @param sn: the sequence num which is contained in the clone file
+     * @param ctx: the whole context about the snaps and rollbacks of curvebs file  
+     * @return: return the current snapshot or zero if not exists
+    */
+    SequenceNum getCurrentSnapSn(SequenceNum sn, std::shared_ptr<SnapContext> ctx) const;
+    /**
+     * Get the latest existing snapshot within the specified clone file
+     * @param sn: the sequence num which is contained in the clone file
+     * @param ctx: the whole context about the snaps and rollbacks of curvebs file  
+     * @return: return the latest snapshot or nullptr if not exists
+    */
+    CSSnapshot* getCurrentSnapshot(SequenceNum sn, std::shared_ptr<SnapContext> ctx);
+    /**
+     * Get first snapshot sequence num smaller than sn within the specified clone file,
+     * Note that this snapshot may be under deletion and not deleted yet, so it's either 
+     * contained in ctx or in snapshots_
+     * @param sn: the sequence num to compare and to specify the clone file
+     * @param ctx: the whole context about the snaps and rollbacks of curvebs file  
+     * @return: return the current snapshot or zero if not exists
+    */
+    /**
+     * Get current existing snapshot file with largest seqnum within the specified clone file,
+     * which is so called "working chunk"
+     * @param sn: the sequence num which is contained in the clone file
+     * @param ctx: the whole context about the snaps and rollbacks of curvebs file  
+     * @return: return the current file or nullptr if not exists
+    */
+    CSSnapshot* getCurrentFile(SequenceNum sn, std::shared_ptr<SnapContext> ctx);
+    /**
+     * Get the latest existing snapshot file of this chunk, i.e. the snapshot in snapshots_ 
+     * with the largest seqnum
+     * @return: return the latest file
+    */
+    CSSnapshot* getLatestFile();
+
+    CSErrorCode Read(SequenceNum sn, char * buf, off_t offset, size_t length, std::shared_ptr<SnapContext> ctx);
     CSErrorCode Delete(CSChunkFile* chunkf, SequenceNum sn, std::shared_ptr<SnapContext> ctx);
+    CSErrorCode DeleteWorkingChunk(SequenceNum sn, std::shared_ptr<SnapContext> ctx);
 
     CSErrorCode Move(SequenceNum from, SequenceNum to);
     CSErrorCode Merge(SequenceNum from, SequenceNum to);
+    CSErrorCode Sync();
+    CSErrorCode DeleteAll();
     virtual ~CSSnapshots();
 
  private:
-    std::vector<CSSnapshot*>::iterator find(SequenceNum sn);
-
-    // Snapshot file pointers, sorted by sequence number.
-    std::vector<CSSnapshot*> snapshots_;
+    std::map<SequenceNum, CSSnapshot*> snapshots_;
     const PageSizeType pageSize_;
 };
 

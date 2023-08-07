@@ -39,16 +39,18 @@ class MockDataStore : public CSDataStore {
     MOCK_METHOD2(DeleteChunk, CSErrorCode(ChunkID, SequenceNum));
     MOCK_METHOD2(DeleteSnapshotChunk, CSErrorCode(ChunkID,
                                                              SequenceNum));
-    MOCK_METHOD5(ReadChunk, CSErrorCode(ChunkID,
+    MOCK_METHOD6(ReadChunk, CSErrorCode(ChunkID,
                                         SequenceNum,
                                         char*,
                                         off_t,
-                                        size_t));
-    MOCK_METHOD5(ReadSnapshotChunk, CSErrorCode(ChunkID,
+                                        size_t,
+                                        std::shared_ptr<SnapContext>));
+    MOCK_METHOD6(ReadSnapshotChunk, CSErrorCode(ChunkID,
                                                 SequenceNum,
                                                 char*,
                                                 off_t,
-                                                size_t));
+                                                size_t,
+                                                std::shared_ptr<SnapContext>));
     MOCK_METHOD7(WriteChunk, CSErrorCode(ChunkID,
                                          SequenceNum,
                                          const char*,

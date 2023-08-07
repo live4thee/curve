@@ -25,5 +25,6 @@ cc_library(
     deps = [
         "//external:braft",
         "//external:gflags",
+        "//proto:common_cc_proto",
     ],
 )

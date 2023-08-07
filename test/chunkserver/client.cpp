@@ -147,6 +147,7 @@ int main(int argc, char *argv[]) {
             request.set_offset(0);
             request.set_size(FLAGS_request_size);
             cntl.request_attachment().resize(FLAGS_request_size, fillCh);
+            request.mutable_clonefileinfos()->CopyFrom(curve::chunkserver::buildCloneFileInfos(sn));
             chunkStub.WriteChunk(&cntl, &request, &response, nullptr);
             if (cntl.Failed()) {
                 LOG(INFO) << "write failed: " << cntl.ErrorText();
@@ -167,6 +168,7 @@ int main(int argc, char *argv[]) {
             request.set_offset(0);
             request.set_size(FLAGS_request_size);
             request.set_appliedindex(1);
+            request.mutable_clonefileinfos()->CopyFrom(curve::chunkserver::buildCloneFileInfos(sn));
             chunkStub.ReadChunk(&cntl, &request, &response, nullptr);
             if (cntl.Failed()) {
                 LOG(INFO) << "read failed: " << cntl.ErrorText();

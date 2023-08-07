@@ -157,7 +157,7 @@ TEST_F(CloneCoreTest, ReadChunkTest1) {
         .WillOnce(DoAll(SetArgPointee<1>(info),
                         Return(CSErrorCode::Success)));
     // 读chunk文件
-    EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length))
+    EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length, _))
         .Times(1);
     // 更新 applied index
     EXPECT_CALL(*node_, UpdateAppliedIndex(_))
@@ -211,7 +211,7 @@ TEST_F(CloneCoreTest, ReadChunkTest2) {
         // 读chunk文件
         char chunkData[length];  // NOLINT
         memset(chunkData, 'a', length);
-        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length))
+        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length, _))
             .WillOnce(DoAll(SetArrayArgument<2>(chunkData,
                                                 chunkData + length),
                             Return(CSErrorCode::Success)));
@@ -253,7 +253,7 @@ TEST_F(CloneCoreTest, ReadChunkTest2) {
             .WillRepeatedly(DoAll(SetArgPointee<1>(info),
                                   Return(CSErrorCode::Success)));
         // 读chunk文件
-        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length))
+        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length, _))
             .Times(0);
         // 更新 applied index
         EXPECT_CALL(*node_, UpdateAppliedIndex(_))
@@ -306,7 +306,7 @@ TEST_F(CloneCoreTest, ReadChunkTest2) {
         // 读chunk文件
         char chunkData[3 * PAGE_SIZE];
         memset(chunkData, 'a', 3 * PAGE_SIZE);
-        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, 0, 3 * PAGE_SIZE))
+        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, 0, 3 * PAGE_SIZE, _))
             .WillOnce(DoAll(SetArrayArgument<2>(chunkData,
                                                 chunkData + 3 * PAGE_SIZE),
                             Return(CSErrorCode::Success)));
@@ -357,7 +357,7 @@ TEST_F(CloneCoreTest, ReadChunkTest2) {
         EXPECT_CALL(*copyer_, DownloadAsync(_))
             .Times(0);
         // 读chunk文件
-        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, _, _))
+        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, _, _, _))
             .Times(0);
         // 更新 applied index
         EXPECT_CALL(*node_, UpdateAppliedIndex(_))
@@ -412,7 +412,7 @@ TEST_F(CloneCoreTest, ReadChunkTest3) {
             .Times(2)
             .WillRepeatedly(Return(CSErrorCode::ChunkNotExistError));
         // 读chunk文件
-        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length))
+        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length, _))
             .Times(0);
         // 更新 applied index
         EXPECT_CALL(*node_, UpdateAppliedIndex(_))
@@ -474,7 +474,7 @@ TEST_F(CloneCoreTest, ReadChunkErrorTest) {
             .WillOnce(Return(CSErrorCode::InternalError));
         EXPECT_CALL(*copyer_, DownloadAsync(_))
             .Times(0);
-        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, _, _))
+        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, _, _, _))
             .Times(0);
         EXPECT_CALL(*node_, Propose(_))
             .Times(0);
@@ -503,7 +503,7 @@ TEST_F(CloneCoreTest, ReadChunkErrorTest) {
                 brpc::ClosureGuard guard(closure);
                 closure->SetFailed();
             }));
-        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, _, _))
+        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, _, _, _))
             .Times(0);
 
         ASSERT_EQ(0, core->HandleReadRequest(readRequest,
@@ -532,7 +532,7 @@ TEST_F(CloneCoreTest, ReadChunkErrorTest) {
                 AsyncDownloadContext* context = closure->GetDownloadContext();
                 memcpy(context->buf, cloneData, length);
             }));
-        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, _, _))
+        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, _, _, _))
             .WillOnce(Return(CSErrorCode::InternalError));
          // 产生PasteChunkRequest
         braft::Task task;
@@ -580,7 +580,7 @@ TEST_F(CloneCoreTest, RecoverChunkTest1) {
         .WillOnce(DoAll(SetArgPointee<1>(info),
                         Return(CSErrorCode::Success)));
     // 读chunk文件
-    EXPECT_CALL(*datastore_, ReadChunk(_, _, _, _, _))
+    EXPECT_CALL(*datastore_, ReadChunk(_, _, _, _, _, _))
         .Times(0);
     // 不会产生PasteChunkRequest
     EXPECT_CALL(*node_, Propose(_))
@@ -625,7 +625,7 @@ TEST_F(CloneCoreTest, RecoverChunkTest2) {
             .WillOnce(DoAll(SetArgPointee<1>(info),
                             Return(CSErrorCode::Success)));
         // 不会读chunk文件
-        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, _, _))
+        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, _, _, _))
             .Times(0);
         // 不会产生PasteChunkRequest
         EXPECT_CALL(*node_, Propose(_))
@@ -658,7 +658,7 @@ TEST_F(CloneCoreTest, RecoverChunkTest2) {
             .WillOnce(DoAll(SetArgPointee<1>(info),
                             Return(CSErrorCode::Success)));
         // 不会读chunk文件
-        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length))
+        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length, _))
             .Times(0);
         // 产生PasteChunkRequest
         braft::Task task;
@@ -718,7 +718,7 @@ TEST_F(CloneCoreTest, DisablePasteTest) {
             .WillRepeatedly(DoAll(SetArgPointee<1>(info),
                                   Return(CSErrorCode::Success)));
         // 读chunk文件
-        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length))
+        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length, _))
             .Times(0);
         // 更新 applied index
         EXPECT_CALL(*node_, UpdateAppliedIndex(_))
@@ -756,7 +756,7 @@ TEST_F(CloneCoreTest, DisablePasteTest) {
             .WillOnce(DoAll(SetArgPointee<1>(info),
                             Return(CSErrorCode::Success)));
         // 不会读chunk文件
-        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length))
+        EXPECT_CALL(*datastore_, ReadChunk(_, _, _, offset, length, _))
             .Times(0);
         // 产生PasteChunkRequest
         braft::Task task;
