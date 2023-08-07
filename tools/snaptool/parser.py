@@ -100,9 +100,8 @@ def get_parser():
     # create-recover option
     subparser = subparsers.add_parser("recover", help="do recover")
     subparser.add_argument("--user", help='user who need to recover', type=str, required=True)
-    subparser.add_argument("--src", help='source filename or  uuid', type=str, required=True)
-    subparser.add_argument("--dest", help='dest file name', type=str, required=True)
-    subparser.add_argument("--lazy", help='need lazy', type=str, choices=["true", "false"], required=True)
+    subparser.add_argument("--src", help='source snapshot uuid', type=str, required=True)
+    subparser.add_argument("--dest", help='dest file name', type=str, required=False)
 
     # flatten option
     subparser =  subparsers.add_parser("flatten", help="do flatten lazy clone/recover")

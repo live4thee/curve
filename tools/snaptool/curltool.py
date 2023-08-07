@@ -94,22 +94,29 @@ def create_snapshot(user, filename, snapshotname):
         return
     print("create snapshot success, UUID=%s" % jsonobj['UUID'])
 
-def clone_or_recover(type, user, src, dest, lazy):
+def clone(user, src, dest, lazy):
     if user is None or src is None or dest is None or lazy is None:
         print('user, src, dest, lazy need')
         return
 
-    params = ''
-    if type == "clone":
-        params = {'Action':'Clone', 'Version':'0.0.6', 'User':user, 'Source':src, 'Destination':dest, 'Lazy':lazy}
-    else:
-        params = {'Action':'Recover', 'Version':'0.0.6', 'User':user, 'Source':src, 'Destination':dest, 'Lazy':lazy}
-
+    params = {'Action':'Clone', 'Version':'0.0.6', 'User':user, 'Source':src, 'Destination':dest, 'Lazy':lazy}
     jsonobj = query(params)
     if jsonobj['Code'] != '0':
-        print("%s fail, ecode=%s, etest=%s" % (type, jsonobj['Code'], errcodelist[jsonobj['Code']]))
+        print("clone fail, ecode=%s, etext=%s" % (jsonobj['Code'], errcodelist[jsonobj['Code']]))
         return
-    print("%s success. UUID=%s" % (type, jsonobj['UUID']))
+    print("clone success. UUID=%s" % jsonobj['UUID'])
+
+def recover(user, src, dest):
+    if user is None or src is None :
+        print('user, src need')
+        return
+    strDest = dest if dest is not None else ""
+    params = {'Action':'Recover', 'Version':'0.0.6', 'User':user, 'Source':src, 'Destination':strDest}
+    jsonobj = query(params)
+    if jsonobj['Code'] != '0':
+        print("recover fail, ecode=%s, etext=%s" % (jsonobj['Code'], errcodelist[jsonobj['Code']]))
+        return
+    print("recover success. ")
 
 def flatten(user, taskid):
     params = None
@@ -119,7 +126,7 @@ def flatten(user, taskid):
     params = {'Action':'Flatten', 'Version':'0.0.6', 'User':user, 'UUID':taskid}
     jsonobj = query(params)
     if jsonobj['Code'] != '0':
-        print("flatten fail, ecode=%s, etest=%s" % (jsonobj['Code'], errcodelist[jsonobj['Code']]))
+        print("flatten fail, ecode=%s, etext=%s" % (jsonobj['Code'], errcodelist[jsonobj['Code']]))
         return
     print("flatten success. UUID=%s" % (taskid))
 
@@ -143,7 +150,7 @@ def get_clone_list(user = None, src = None, dest = None, uuid = None, clonetype 
         params['Type'] = str(clonetype)
     jsonobj = query(params)
     if jsonobj['Code'] != '0':
-        print("get clone list fail, ecode=%s, etest=%s" % (jsonobj['Code'], errcodelist[jsonobj['Code']]))
+        print("get clone list fail, ecode=%s, etext=%s" % (jsonobj['Code'], errcodelist[jsonobj['Code']]))
         return
     return jsonobj['TotalCount'], jsonobj['TaskInfos']
 
@@ -163,7 +170,7 @@ def get_snapshot_list(user = None, file = None, uuid = None, status = None, limi
         params['Status'] = str(status)
     jsonobj = query(params)
     if jsonobj['Code'] != '0':
-        print("get snap list fail, ecode=%s, etest=%s" % (jsonobj['Code'], errcodelist[jsonobj['Code']]))
+        print("get snap list fail, ecode=%s, etext=%s" % (jsonobj['Code'], errcodelist[jsonobj['Code']]))
         return
     return jsonobj['TotalCount'], jsonobj['Snapshots']
 

@@ -35,8 +35,10 @@ if __name__ == '__main__':
         queryclone.clone_recover_status(args)
     elif args.optype == "create-snapshot":
         curltool.create_snapshot(args.user, args.filename, args.snapshotname)
-    elif args.optype == "clone" or args.optype == "recover":
-        curltool.clone_or_recover(args.optype, args.user, args.src, args.dest, args.lazy)
+    elif args.optype == "clone":
+        curltool.clone(args.user, args.src, args.dest, args.lazy)
+    elif args.optype == "recover":
+        curltool.recover(args.user, args.src, args.dest)
     elif args.optype == "flatten" :
         curltool.flatten(args.user, args.taskid)
 

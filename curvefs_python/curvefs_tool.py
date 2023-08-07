@@ -56,6 +56,9 @@ retCode = { 0 : "OK",
             27 : "DELETE_BEING_CLONED",
             28 : "CLIENT_NOT_SUPPORT_SNAPSHOT",
             29 : "SNAPSTHO_FROZEN",
+            30 : "RETRY_UNTIL_SUCCESS",
+            31 : "EPOCH_TOO_OLD",
+            32 : "TO_BE_DELETED",
             100 : "UNKNOWN"}
 
 def getRetCodeMsg(ret):
