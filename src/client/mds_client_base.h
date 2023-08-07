@@ -87,6 +87,8 @@ using curve::mds::topology::GetChunkServerInfoResponse;
 using curve::mds::topology::ListChunkServerResponse;
 using curve::mds::IncreaseFileEpochRequest;
 using curve::mds::IncreaseFileEpochResponse;
+using curve::mds::RecoverFileRequest;
+using curve::mds::RecoverFileResponse;
 
 extern const char* kRootUserName;
 
@@ -201,6 +203,23 @@ class MDSClientBase {
                         DeleteSnapShotResponse* response,
                         brpc::Controller* cntl,
                         brpc::Channel* channel);
+
+    /**
+     * 将文件恢复到版本号为seq的快照
+     * @param: filename是要恢复的文件名
+     * @param: userinfo是用户信息
+     * @param: seq是快照的版本号
+     * @param[out]: response为该rpc的response，提供给外部处理
+     * @param[in|out]: cntl既是入参，也是出参，返回RPC状态
+     * @param[in]:channel是当前与mds建立的通道
+     */
+    void RecoverFile(const std::string& filename,
+                        const UserInfo_t& userinfo,
+                        uint64_t seq,
+                        RecoverFileResponse* response,
+                        brpc::Controller* cntl,
+                        brpc::Channel* channel);
+
     /**
      * 以列表的形式获取版本号为seq的snapshot文件信息，snapif是出参
      * @param: filename是要快照的文件名
@@ -388,6 +407,7 @@ class MDSClientBase {
      * @param: userinfo是用户信息
      * @param: filename待删除的文件名
      * @param: deleteforce是否强制删除而不放入垃圾回收站
+     * @param: deleteSnaps删除文件时是否同时清除快照数据，而非不允许删除
      * @param: id为文件id，默认值为0，如果用户不指定该值，不会传id到mds
      * @param[out]: response为该rpc的response，提供给外部处理
      * @param[in|out]: cntl既是入参，也是出参，返回RPC状态
@@ -396,6 +416,7 @@ class MDSClientBase {
     void DeleteFile(const std::string& filename,
                     const UserInfo_t& userinfo,
                     bool deleteforce,
+                    bool deleteSnaps,
                     uint64_t fileid,
                     DeleteFileResponse* response,
                     brpc::Controller* cntl,

@@ -253,7 +253,8 @@ class FakeMDSCurveFSService : public curve::mds::CurveFSService {
 
             if (resp->statuscode() == ::curve::mds::StatusCode::kOK) {
                 curve::mds::FileInfo * info = new curve::mds::FileInfo;
-                info->set_seqnum(seq++);
+                // info->set_seqnum(seq++);  // seq++ means snapshot created ,which is not the case here
+                info->set_seqnum(seq);
                 info->set_filename("_filename_");
                 info->set_id(resp->fileinfo().id());
                 info->set_parentid(0);
@@ -261,6 +262,10 @@ class FakeMDSCurveFSService : public curve::mds::CurveFSService {
                 info->set_chunksize(4 * 1024 * 1024);
                 info->set_length(4 * 1024 * 1024 * 1024ul);
                 info->set_ctime(12345678);
+                // put a clone file, for the usage of instant rollback
+                auto clone = info->add_clones();
+                clone->set_seqnum(seq);
+                clone->set_recoversource(0);                
 
                 curve::mds::ProtoSession *protoSession =
                                         new curve::mds::ProtoSession();

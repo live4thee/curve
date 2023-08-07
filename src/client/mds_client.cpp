@@ -574,6 +574,35 @@ LIBCURVE_ERROR MDSClient::DeleteSnapShot(const std::string& filename,
     return rpcExcutor.DoRPCTask(task, metaServerOpt_.mdsMaxRetryMS);
 }
 
+LIBCURVE_ERROR MDSClient::RecoverFile(const std::string& filename,
+                                         const UserInfo_t& userinfo,
+                                         uint64_t seq) {
+    auto task = RPCTaskDefine {
+        RecoverFileResponse response;
+        MDSClientBase::RecoverFile(filename, userinfo, seq,
+                                     &response, cntl, channel);
+
+        if (cntl->Failed()) {
+            LOG(WARNING) << "recover file failed, errcorde = "
+                << cntl->ErrorCode() << ", error content:"
+                << cntl->ErrorText() << ", log id = " << cntl->log_id();
+            return -cntl->ErrorCode();
+        }
+
+        LIBCURVE_ERROR retcode;
+        StatusCode stcode = response.statuscode();
+        MDSStatusCode2LibcurveError(stcode, &retcode);
+        LOG_IF(WARNING, retcode != LIBCURVE_ERROR::OK)
+                << "RecoverFile: filename = " << filename
+                << ", owner = " << userinfo.owner
+                << ", seqnum = " << seq << ", errocde = " << retcode
+                << ", error msg = " << StatusCode_Name(stcode)
+                << ", log id = " << cntl->log_id();
+        return retcode;
+    };
+    return rpcExcutor.DoRPCTask(task, metaServerOpt_.mdsMaxRetryMS);
+}
+
 LIBCURVE_ERROR MDSClient::ListSnapShot(const std::string& filename,
                                        const UserInfo_t& userinfo,
                                        const std::vector<uint64_t>* seq,
@@ -1120,12 +1149,13 @@ LIBCURVE_ERROR MDSClient::Extend(const std::string& filename,
 LIBCURVE_ERROR MDSClient::DeleteFile(const std::string& filename,
                                      const UserInfo_t& userinfo,
                                      bool deleteforce,
+                                     bool deleteSnaps,
                                      uint64_t fileid) {
     auto task = RPCTaskDefine {
         DeleteFileResponse response;
         mdsClientMetric_.deleteFile.qps.count << 1;
         LatencyGuard lg(&mdsClientMetric_.deleteFile.latency);
-        MDSClientBase::DeleteFile(filename, userinfo, deleteforce,
+        MDSClientBase::DeleteFile(filename, userinfo, deleteforce, deleteSnaps,
                                     fileid, &response, cntl, channel);
         if (cntl->Failed()) {
             mdsClientMetric_.deleteFile.eps.count << 1;
@@ -1413,6 +1443,9 @@ void MDSClient::MDSStatusCode2LibcurveError(const StatusCode& status,
             break;
         case ::curve::mds::StatusCode::kSnapshotFrozen:
             *errcode = LIBCURVE_ERROR::SNAPSTHO_FROZEN;
+            break;
+        case StatusCode::kSnapshotToBeDeleted:
+            *errcode = LIBCURVE_ERROR::TO_BE_DELETED;
             break;
         default:
             *errcode = LIBCURVE_ERROR::UNKNOWN;

@@ -107,6 +107,8 @@ class IOTrackerAlignmentTest : public ::testing::Test {
         fileInfo_.segmentsize = 1 * GiB;
         fileInfo_.chunksize = 16 * MiB;
         fileInfo_.filestatus = FileStatus::CloneMetaInstalled;
+        fileInfo_.seqnum = 1;
+        fileInfo_.cloneFileInfos = EmptyCloneFileInfos(1);
 
         mockMetaCache_->UpdateFileInfo(fileInfo_);
 

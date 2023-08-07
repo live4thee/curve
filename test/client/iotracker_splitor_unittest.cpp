@@ -165,8 +165,12 @@ class IOTrackerSplitorTest : public ::testing::Test {
         fin->set_chunksize(4 * 1024 * 1024);
         fin->set_length(1 * 1024 * 1024 * 1024ul);
         fin->set_ctime(12345678);
-        fin->set_seqnum(0);
+        fin->set_seqnum(1);
         fin->set_segmentsize(1 * 1024 * 1024 * 1024ul);
+        // put a clone file to satisfy the parameter check condition in IO Splitor
+        auto clone = fin->add_clones();
+        clone->set_seqnum(1);
+        clone->set_recoversource(0);  
 
         openresponse->set_statuscode(::curve::mds::StatusCode::kOK);
         openresponse->set_allocated_protosession(se);
@@ -256,6 +260,10 @@ class IOTrackerSplitorTest : public ::testing::Test {
         info->set_chunksize(4 * 1024 * 1024);
         info->set_length(1 * 1024 * 1024 * 1024ul);
         info->set_ctime(12345678);
+        // put a clone file to satisfy the parameter check condition in IO Splitor
+        auto clone1 = info->add_clones();
+        clone1->set_seqnum(1);
+        clone1->set_recoversource(0);  
 
         ::curve::mds::ReFreshSessionResponse* refreshresp =
             new ::curve::mds::ReFreshSessionResponse;
@@ -825,7 +833,7 @@ TEST_F(IOTrackerSplitorTest, largeIOTest) {
     butil::IOBuf writeData;
     writeData.append(buf, length);
     FInfo_t fi;
-    fi.seqnum = 0;
+    fi.seqnum = 1;
     fi.chunksize = 4 * 1024 * 1024;
     fi.segmentsize = 1 * 1024 * 1024 * 1024ul;
     curve::client::IOManager4File* iomana = fileinstance_->GetIOManager4File();
@@ -861,7 +869,7 @@ TEST_F(IOTrackerSplitorTest, largeIOTest) {
     ASSERT_EQ(2, first->idinfo_.lpid_);
     ASSERT_EQ(4 * 1024 * 1024 - length, first->offset_);
     ASSERT_EQ(64 * 1024, first->rawlength_);
-    ASSERT_EQ(0, first->seq_);
+    ASSERT_EQ(1, first->seq_);
     ASSERT_EQ(0, first->appliedindex_);
 
     ASSERT_EQ(1, second->idinfo_.cid_);
@@ -869,7 +877,7 @@ TEST_F(IOTrackerSplitorTest, largeIOTest) {
     ASSERT_EQ(2, second->idinfo_.lpid_);
     ASSERT_EQ(4 * 1024 * 1024 - 64 * 1024, second->offset_);
     ASSERT_EQ(64 * 1024, second->rawlength_);
-    ASSERT_EQ(0, second->seq_);
+    ASSERT_EQ(1, second->seq_);
     ASSERT_EQ(0, second->appliedindex_);
     delete[] buf;
 }
@@ -882,7 +890,8 @@ TEST_F(IOTrackerSplitorTest, InvalidParam) {
     MetaCache* mc = fileinstance_->GetIOManager4File()->GetMetaCache();
     std::vector<RequestContext*> reqlist;
     FInfo_t fi;
-
+    fi.seqnum = 1;
+    fi.cloneFileInfos = EmptyCloneFileInfos(1);
     IOTracker* iotracker = new IOTracker(nullptr, nullptr, nullptr);
     curve::client::ChunkIDInfo cid(0, 0, 0);
 
@@ -892,7 +901,7 @@ TEST_F(IOTrackerSplitorTest, InvalidParam) {
 
     ASSERT_EQ(-1, curve::client::Splitor::SingleChunkIO2ChunkRequests(
                       nullptr, mc,
-                      &reqlist, cid, &iobuf, offset, length, 0, {0}));
+                      &reqlist, cid, &iobuf, offset, length, 0, {}));
 
     ASSERT_EQ(-1, curve::client::Splitor::IO2ChunkRequests(
                       iotracker, nullptr, &reqlist, &iobuf, offset, length,
@@ -900,7 +909,7 @@ TEST_F(IOTrackerSplitorTest, InvalidParam) {
 
     ASSERT_EQ(-1, curve::client::Splitor::SingleChunkIO2ChunkRequests(
                       iotracker, nullptr,
-                      &reqlist, cid, &iobuf, offset, length, 0, {0}));
+                      &reqlist, cid, &iobuf, offset, length, 0, {}));
 
     ASSERT_EQ(-1, curve::client::Splitor::IO2ChunkRequests(
                       iotracker, mc, &reqlist, &iobuf, offset, length,
@@ -913,7 +922,7 @@ TEST_F(IOTrackerSplitorTest, InvalidParam) {
 
     ASSERT_EQ(0, curve::client::Splitor::SingleChunkIO2ChunkRequests(
                      iotracker, mc,
-                     &reqlist, cid, &iobuf, offset, length, 0, {0}));
+                     &reqlist, cid, &iobuf, offset, length, 1, EmptyCloneFileInfos(1)));
 
     ASSERT_EQ(-1, curve::client::Splitor::IO2ChunkRequests(
                       iotracker, mc, nullptr, &iobuf, offset, length,
@@ -921,7 +930,7 @@ TEST_F(IOTrackerSplitorTest, InvalidParam) {
 
     ASSERT_EQ(-1, curve::client::Splitor::SingleChunkIO2ChunkRequests(
                       iotracker, mc,
-                      nullptr, cid, &iobuf, offset, length, 0, {0}));
+                      nullptr, cid, &iobuf, offset, length, 0, {}));
 
     ASSERT_EQ(-1, curve::client::Splitor::IO2ChunkRequests(
                       iotracker, mc, &reqlist, nullptr, offset, length,
@@ -930,7 +939,7 @@ TEST_F(IOTrackerSplitorTest, InvalidParam) {
     iotracker->SetOpType(OpType::WRITE);
     ASSERT_EQ(-1,
               curve::client::Splitor::SingleChunkIO2ChunkRequests(
-                  iotracker, mc, &reqlist, cid, nullptr, offset, length, 0, {0}));
+                  iotracker, mc, &reqlist, cid, nullptr, offset, length, 0, {}));
 
     // write request, but write data is nullptr
     iotracker->SetOpType(OpType::WRITE);
@@ -1050,7 +1059,7 @@ TEST_F(IOTrackerSplitorTest, stripeTest) {
     butil::IOBuf dataCopy;
     char* buf = new char[length];
 
-    fi.seqnum = 0;
+    fi.seqnum = 1;
     fi.chunksize = 4 * 1024 * 1024;
     fi.segmentsize = 1 * 1024 * 1024 * 1024ul;
     fi.stripeUnit = 1 * 1024 * 1024;
@@ -1126,7 +1135,7 @@ TEST_F(IOTrackerSplitorTest, TestDisableStripeForStripeFile) {
     scheduler.DelegateToFake();
 
     FInfo fi;
-    fi.seqnum = 0;
+    fi.seqnum = 1;
     fi.chunksize = 4 * 1024 * 1024;
     fi.segmentsize = 1 * 1024 * 1024 * 1024ul;
     fi.stripeUnit = 1 * 1024 * 1024;
@@ -1319,6 +1328,7 @@ TEST_F(IOTrackerSplitorTest, StartReadNotAllocateSegmentFromOrigin) {
     mdsclient_->Initialize(fopt.metaServerOpt);
     fileinstance2->Initialize("/clonesource", mdsclient_, userinfo, OpenFlags{},
                               fopt);
+    fileinstance2->Open("/clonesource", userinfo, nullptr);
 
     MockRequestScheduler* mockschuler2 = new MockRequestScheduler;
     mockschuler2->DelegateToFake();
@@ -1344,6 +1354,9 @@ TEST_F(IOTrackerSplitorTest, StartReadNotAllocateSegmentFromOrigin) {
     fileInfo.sourceInfo.name = "/clonesource";
     fileInfo.sourceInfo.segmentSize = 1ull * 1024 * 1024 * 1024;
     fileInfo.sourceInfo.length = 10ull * 1024 * 1024 * 1024;
+    // put a clone file to satisfy the parameter check condition in IO Splitor
+    fileInfo.seqnum = 1;
+    fileInfo.cloneFileInfos = EmptyCloneFileInfos(1);
     for (uint64_t i = 0; i < fileInfo.sourceInfo.length;
          i += fileInfo.sourceInfo.segmentSize) {
         fileInfo.sourceInfo.allocatedSegmentOffsets.insert(i);
@@ -1419,6 +1432,9 @@ TEST_F(IOTrackerSplitorTest, AsyncStartReadNotAllocateSegmentFromOrigin) {
     fileInfo.sourceInfo.name = "/clonesource";
     fileInfo.sourceInfo.segmentSize = 1ull * 1024 * 1024 * 1024;
     fileInfo.sourceInfo.length = 10ull * 1024 * 1024 * 1024;
+    // put a clone file to satisfy the parameter check condition in IO Splitor
+    fileInfo.seqnum = 1;
+    fileInfo.cloneFileInfos = EmptyCloneFileInfos(1);
     for (uint64_t i = 0; i < fileInfo.sourceInfo.length;
          i += fileInfo.sourceInfo.segmentSize) {
         fileInfo.sourceInfo.allocatedSegmentOffsets.insert(i);

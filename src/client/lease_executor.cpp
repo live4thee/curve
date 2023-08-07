@@ -161,22 +161,12 @@ void LeaseExecutor::IncremRefreshFailed() {
 void LeaseExecutor::CheckNeedUpdateFileInfo(const FInfo& fileInfo) {
     MetaCache* metaCache = iomanager_->GetMetaCache();
 
-    uint64_t currentFileSn = metaCache->GetLatestFileSn();
-    uint64_t newSn = fileInfo.seqnum;
-    if (newSn > currentFileSn) {
-        LOG(INFO) << "Update file sn, new file sn = " << newSn
-                  << ", current sn = " << currentFileSn
+    CloneFileInfos currentInfos = metaCache->GetLatestCloneFileInfos();
+    if(currentInfos != fileInfo.cloneFileInfos) {
+        LOG(INFO) << "Update cloneFileInfos, new infos = \n" << fileInfo.cloneFileInfos.DebugString()
+                  << ", old infos = \n" << currentInfos.DebugString()
                   << ", filename = " << fullFileName_;
-        metaCache->SetLatestFileSn(newSn);
-    }
-
-    std::string currentSnaps = Snaps2Str(metaCache->GetLatestSnaps());
-    std::string newSnaps = Snaps2Str(fileInfo.snaps);
-    if(newSnaps != currentSnaps) {
-        LOG(INFO) << "Update snaps, new snaps = " << newSnaps
-                  << ", current snaps = " << currentSnaps 
-                  << ", filename = " << fullFileName_;
-        metaCache->SetLatestSnaps(fileInfo.snaps);
+        metaCache->SetLatestCloneFileInfos(fileInfo.cloneFileInfos);
     }
 
     FileStatus currentFileStatus = metaCache->GetLatestFileStatus();

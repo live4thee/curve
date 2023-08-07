@@ -47,7 +47,7 @@ class IOManager4Chunk : public IOManager {
     * 读取seq版本号的快照数据
     * @param:chunkidinfo 目标chunk
     * @param: seq是快照版本号
-    * @param: snaps是当前chunk所有快照序号列表
+    * @param cloneFileInfos是当前chunk所有的快照和回滚信息
     * @param: offset是快照内的offset
     * @param: len是要读取的长度
     * @param: buf是读取缓冲区
@@ -56,7 +56,7 @@ class IOManager4Chunk : public IOManager {
     */
     int ReadSnapChunk(const ChunkIDInfo &chunkidinfo,
                      uint64_t seq,
-                     const std::vector<uint64_t>& snaps,
+                     const CloneFileInfos& cloneFileInfos,
                      uint64_t offset,
                      uint64_t len,
                      char *buf,

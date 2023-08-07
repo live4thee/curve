@@ -99,6 +99,13 @@ int SnapshotClient::DeleteSnapShot(const std::string& filename,
     return -ret;
 }
 
+int SnapshotClient::RecoverFile(const std::string& filename,
+                                const UserInfo_t& userinfo,
+                                uint64_t seq) {
+    LIBCURVE_ERROR ret = mdsclient_.RecoverFile(filename, userinfo, seq);
+    return -ret;
+}
+
 int SnapshotClient::GetSnapShot(const std::string& filename,
                                         const UserInfo_t& userinfo,
                                         uint64_t seq,
@@ -271,12 +278,12 @@ int SnapshotClient::RecoverChunk(const ChunkIDInfo &chunkidinfo,
 
 int SnapshotClient::ReadChunkSnapshot(ChunkIDInfo cidinfo,
                                         uint64_t seq,
-                                        const std::vector<uint64_t>& snaps,
+                                        const CloneFileInfos& cloneFileInfos,
                                         uint64_t offset,
                                         uint64_t len,
                                         char *buf,
                                         SnapCloneClosure* scc) {
-    return iomanager4chunk_.ReadSnapChunk(cidinfo, seq, snaps, offset, len, buf, scc);
+    return iomanager4chunk_.ReadSnapChunk(cidinfo, seq, cloneFileInfos, offset, len, buf, scc);
 }
 
 int SnapshotClient::DeleteChunkSnapshotOrCorrectSn(

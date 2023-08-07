@@ -193,10 +193,13 @@ class FileClient {
      * @param: userinfo是用户信息
      * @param: filename待删除的文件名
      * @param: deleteforce=true只能用于从回收站删除,false为放入垃圾箱
+     * @param: deleteSnaps删除文件时是否同时清除快照数据，而非不允许删除 （可以减少不必要的快照数据搬迁）.
+     *         目前只是清除chunkserver的快照数据，snapshotclone的快照记录没有清除
      */
     virtual int Unlink(const std::string& filename,
                        const UserInfo_t& userinfo,
-                       bool deleteforce = false);
+                       bool deleteforce = false,
+                       bool deleteSnaps = false);
 
     /**
      * 枚举目录内容

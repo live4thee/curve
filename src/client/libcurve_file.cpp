@@ -473,7 +473,7 @@ int FileClient::Extend(const std::string& filename,
 }
 
 int FileClient::Unlink(const std::string& filename,
-    const UserInfo_t& userinfo, bool deleteforce) {
+    const UserInfo_t& userinfo, bool deleteforce, bool deleteSnaps) {
     LIBCURVE_ERROR ret;
     uint64_t sn = 0;
     std::string realfilename;
@@ -483,7 +483,7 @@ int FileClient::Unlink(const std::string& filename,
         return -LIBCURVE_ERROR::NOT_SUPPORT;
     }  
     if (mdsClient_ != nullptr) {
-        ret = mdsClient_->DeleteFile(filename, userinfo, deleteforce);
+        ret = mdsClient_->DeleteFile(filename, userinfo, deleteforce, deleteSnaps);
         LOG_IF(ERROR, ret != LIBCURVE_ERROR::OK)
             << "Unlink failed, filename: " << filename
             << ", force: " << deleteforce

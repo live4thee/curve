@@ -178,11 +178,13 @@ class MDSClient : public MDSClientBase,
      * @param: userinfo是用户信息
      * @param: filename待删除的文件名
      * @param: deleteforce是否强制删除而不放入垃圾回收站
+     * @param: deleteSnaps删除文件时是否同时清除快照数据，而非不允许删除
      * @param: id为文件id，默认值为0，如果用户不指定该值，不会传id到mds
      */
     LIBCURVE_ERROR DeleteFile(const std::string& filename,
                               const UserInfo_t& userinfo,
                               bool deleteforce = false,
+                              bool deleteSnaps = false,
                               uint64_t id = 0);
     /**
      * 创建版本号为seq的快照
@@ -204,6 +206,18 @@ class MDSClient : public MDSClientBase,
      *          否则返回LIBCURVE_ERROR::FAILED
      */
     LIBCURVE_ERROR DeleteSnapShot(const std::string& filename,
+                                  const UserInfo_t& userinfo,
+                                  uint64_t seq);
+
+    /**
+     * 将文件恢复到版本号为seq的快照
+     * @param: filename是要恢复的文件名
+     * @param: userinfo是用户信息
+     * @param: seq是快照的版本号
+     * @return: 成功返回LIBCURVE_ERROR::OK,如果认证失败返回LIBCURVE_ERROR::AUTHFAIL，
+     *          否则返回LIBCURVE_ERROR::FAILED
+     */
+    LIBCURVE_ERROR RecoverFile(const std::string& filename,
                                   const UserInfo_t& userinfo,
                                   uint64_t seq);
 

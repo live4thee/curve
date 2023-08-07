@@ -185,6 +185,26 @@ void MDSClientBase::DeleteSnapShot(const std::string& filename,
     stub.DeleteSnapShot(cntl, &request, response, nullptr);
 }
 
+void MDSClientBase::RecoverFile(const std::string& filename,
+                                   const UserInfo_t& userinfo,
+                                   uint64_t seq,
+                                   RecoverFileResponse* response,
+                                   brpc::Controller* cntl,
+                                   brpc::Channel* channel) {
+    RecoverFileRequest request;;
+    request.set_seq(seq);
+    request.set_filename(filename);
+    FillUserInfo(&request, userinfo);
+
+    LOG(INFO) << "RecoverFile: filename = " << filename
+                << ", owner = " << userinfo.owner
+                << ", seqnum = " << seq
+                << ", log id = " << cntl->log_id();
+
+    curve::mds::CurveFSService_Stub stub(channel);
+    stub.RecoverFile(cntl, &request, response, nullptr);
+}
+
 void MDSClientBase::ListSnapShot(const std::string& filename,
                                  const UserInfo_t& userinfo,
                                  const std::vector<uint64_t>* seq,
@@ -447,6 +467,7 @@ void MDSClientBase::Extend(const std::string& filename,
 void MDSClientBase::DeleteFile(const std::string& filename,
                                const UserInfo_t& userinfo,
                                bool deleteforce,
+                               bool deleteSnaps,
                                uint64_t fileid,
                                DeleteFileResponse* response,
                                brpc::Controller* cntl,
@@ -454,6 +475,7 @@ void MDSClientBase::DeleteFile(const std::string& filename,
     DeleteFileRequest request;
     request.set_filename(filename);
     request.set_forcedelete(deleteforce);
+    request.set_deletesnaps(deleteSnaps);
     if (fileid > 0) {
         request.set_fileid(fileid);
     }

@@ -488,7 +488,7 @@ void WriteChunkClosure::SendRetryRequest() {
                         reqCtx_->fileId_,
                         reqCtx_->epoch_,
                         reqCtx_->seq_,
-                        reqCtx_->snaps_,
+                        reqCtx_->cloneFileInfos_,
                         reqCtx_->writeData_,
                         reqCtx_->offset_,
                         reqCtx_->rawlength_,
@@ -506,7 +506,7 @@ void WriteChunkClosure::OnSuccess() {
 }
 
 void ReadChunkClosure::SendRetryRequest() {
-    client_->ReadChunk(reqCtx_->idinfo_, reqCtx_->seq_,
+    client_->ReadChunk(reqCtx_->idinfo_, reqCtx_->seq_, reqCtx_->cloneFileInfos_,
                        reqCtx_->offset_,
                        reqCtx_->rawlength_,
                        reqCtx_->appliedindex_,
@@ -535,7 +535,7 @@ void ReadChunkClosure::OnChunkNotExist() {
 }
 
 void ReadChunkSnapClosure::SendRetryRequest() {
-    client_->ReadChunkSnapshot(reqCtx_->idinfo_, reqCtx_->seq_, reqCtx_->snaps_,
+    client_->ReadChunkSnapshot(reqCtx_->idinfo_, reqCtx_->seq_, reqCtx_->cloneFileInfos_,
                                reqCtx_->offset_,
                                reqCtx_->rawlength_,
                                done_);

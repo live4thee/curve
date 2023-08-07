@@ -102,6 +102,7 @@ TEST(MetricTest, ChunkServer_MetricTest) {
 
     FileInstance fi;
     ASSERT_TRUE(fi.Initialize(filename, mdsclient, userinfo, OpenFlags{}, opt));
+    ASSERT_EQ(0, fi.Open(filename, userinfo, nullptr));  // must Open first to get update clonefileinfos
 
     FileMetric* fm = fi.GetIOManager4File()->GetMetric();
 
@@ -217,6 +218,7 @@ TEST(MetricTest, SuspendRPC_MetricTest) {
 
     FileInstance fi;
     ASSERT_TRUE(fi.Initialize(filename, mdsclient, userinfo, OpenFlags{}, opt));
+    ASSERT_EQ(0, fi.Open(filename, userinfo, nullptr));  // must Open first to get update clonefileinfos
 
     FileMetric* fm = fi.GetIOManager4File()->GetMetric();
 

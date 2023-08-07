@@ -74,7 +74,7 @@ int Splitor::IO2ChunkRequests(IOTracker* iotracker, MetaCache* metaCache,
 int Splitor::SingleChunkIO2ChunkRequests(
     IOTracker* iotracker, MetaCache* metaCache,
     std::vector<RequestContext*>* targetlist, const ChunkIDInfo& idinfo,
-    butil::IOBuf* data, off_t offset, uint64_t length, uint64_t seq, const std::vector<uint64_t>& snaps) {
+    butil::IOBuf* data, off_t offset, uint64_t length, uint64_t seq, const CloneFileInfos& cloneFileInfos) {
     if (targetlist == nullptr || metaCache == nullptr || iotracker == nullptr) {
         return -1;
     }
@@ -83,13 +83,8 @@ int Splitor::SingleChunkIO2ChunkRequests(
         return -1;
     }
 
-    if (iotracker->Optype() == OpType::READ_SNAP) {
-        auto it = std::find(snaps.begin(), snaps.end(), seq);
-        if (it == snaps.end() ) {
-            LOG(ERROR) << "Invalid READ_SNAP request, snap sn = " << seq
-                       << ", not contained in snaps [" << Snaps2Str(snaps) << "]";
-            return -1;
-        }
+    if (!ValidateSn(iotracker->Optype(), seq, cloneFileInfos)) {
+        return -1;
     }
 
     const auto maxSplitSizeBytes = 1024 * iosplitopt_.fileIOSplitMaxSizeKB;
@@ -122,7 +117,7 @@ int Splitor::SingleChunkIO2ChunkRequests(
         }
 
         newreqNode->seq_         = seq;
-        newreqNode->snaps_       = snaps;
+        newreqNode->cloneFileInfos_ = cloneFileInfos;
         newreqNode->offset_      = currentOffset;
         newreqNode->rawlength_   = requestLength;
         newreqNode->optype_      = iotracker->Optype();
@@ -134,7 +129,7 @@ int Splitor::SingleChunkIO2ChunkRequests(
                  << ", off = " << currentOffset
                  << ", len = " << requestLength
                  << ", seqnum = " << seq
-                 << ", snaps = [" << Snaps2Str(newreqNode->snaps_) << "]"
+                 << ", cloneFileInfos = \n" << cloneFileInfos.DebugString()
                  << ", chunkid = " << idinfo.cid_
                  << ", copysetid = " << idinfo.cpid_
                  << ", logicpoolid = " << idinfo.lpid_;
@@ -186,7 +181,7 @@ bool Splitor::AssignInternal(IOTracker* iotracker, MetaCache* metaCache,
         std::vector<RequestContext*> templist;
         ret = SingleChunkIO2ChunkRequests(iotracker, metaCache, &templist,
                                           chunkIdInfo, data, off, len,
-                                          (iotracker->Optype() == OpType::READ_SNAP? fileInfo->snapSeqnum : fileInfo->seqnum), fileInfo->snaps);
+                                          (iotracker->Optype() == OpType::READ_SNAP? fileInfo->snapSeqnum : fileInfo->seqnum), fileInfo->cloneFileInfos);
 
         for (auto& ctx : templist) {
             ctx->fileId_ = fileInfo->id;
@@ -311,7 +306,7 @@ int Splitor::SplitForNormal(IOTracker* iotracker, MetaCache* metaCache,
                  << ", off = " << currentChunkOffset
                  << ", len = " << requestLength
                  << ", seqnum = " << fileInfo->seqnum
-                 << ", snaps = [" << Snaps2Str(fileInfo->snaps) << "]"
+                 << ", cloneFileInfos = \n" << fileInfo->cloneFileInfos.DebugString()
                  << ", endoff = " << endRequestOffest
                  << ", chunkendpos = " << currentChunkEndOffset
                  << ", chunksize = " << chunksize
@@ -325,7 +320,7 @@ int Splitor::SplitForNormal(IOTracker* iotracker, MetaCache* metaCache,
                        << ", off = " << currentChunkOffset
                        << ", len = " << requestLength
                        << ", seqnum = " << fileInfo->seqnum
-                       << ", snaps = [" << Snaps2Str(fileInfo->snaps) << "]"
+                       << ", cloneFileInfos = \n" << fileInfo->cloneFileInfos.DebugString()
                        << ", endoff = " << endRequestOffest
                        << ", chunkendpos = " << currentChunkEndOffset
                        << ", chunksize = " << chunksize
@@ -374,7 +369,7 @@ int Splitor::SplitForStripe(IOTracker* iotracker, MetaCache* metaCache,
                  << ", off = " << curChunkOffset
                  << ", len = " << requestLength
                  << ", seqnum = " << fileInfo->seqnum
-                 << ", snaps = [" << Snaps2Str(fileInfo->snaps) << "]"
+                 << ", cloneFileInfos = \n" << fileInfo->cloneFileInfos.DebugString()
                  << ", stripeUnit = " << stripeUnit
                  << ", stripeCount = " << stripeCount
                  << ", chunksize = " << chunksize
@@ -387,7 +382,7 @@ int Splitor::SplitForStripe(IOTracker* iotracker, MetaCache* metaCache,
                        << ", off = " << curChunkOffset
                        << ", len = " << requestLength
                        << ", seqnum = " << fileInfo->seqnum
-                       << ", snaps = [" << Snaps2Str(fileInfo->snaps) << "]"
+                       << ", cloneFileInfos = \n" << fileInfo->cloneFileInfos.DebugString()
                        << ", chunksize = " << chunksize
                        << ", chunkindex = " << curChunkIndex;
 
@@ -481,6 +476,30 @@ bool Splitor::NeedGetOrAllocateSegment(MetaCacheErrorType error, OpType opType,
     }
 
     return false;
+}
+
+bool Splitor::ValidateSn(OpType opType, uint64_t seq, const CloneFileInfos& cloneFileInfos) {
+    if (seq == 0) {
+        LOG(ERROR) << "Invalid request with sn = 0";
+        return false;
+    }
+    if (opType == OpType::READ_SNAP || opType == OpType::READ) {
+        for (auto i = 0; i < cloneFileInfos.clones_size(); ++i) {
+            if (seq > cloneFileInfos.clones(i).seqnum()) {
+                continue;
+            }
+            bool found = cloneFileInfos.clones(i).seqnum() == seq || 
+                    std::binary_search(cloneFileInfos.clones(i).snaps().begin(), 
+                                       cloneFileInfos.clones(i).snaps().end(), seq);
+            if (found) {
+                return true;
+            }
+        }
+        LOG(ERROR) << "Invalid READ_SNAP/READ request, type = " << (int)opType << ", read sn = " << seq
+                    << ", not contained in cloneFileInfos \n" << cloneFileInfos.DebugString();
+        return false;    
+    }
+    return true;
 }
 
 }   // namespace client

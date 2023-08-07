@@ -75,7 +75,7 @@ class Splitor {
      * @param: offset是当前chunk内的偏移
      * @param: length数据长度
      * @param: seq是当前chunk的版本号
-     * @param: snaps是当前chunk所有快照序号列表
+     * @param: cloneFileInfos是当前chunk的快照回滚关系
      */
     static int SingleChunkIO2ChunkRequests(IOTracker* iotracker,
                            MetaCache* metaCache,
@@ -85,7 +85,7 @@ class Splitor {
                            off_t offset,
                            size_t length,
                            uint64_t seq,
-                           const std::vector<uint64_t>& snaps);
+                           const CloneFileInfos& cloneFileInfos);
 
     /**
      * @brief 计算请求的location信息
@@ -150,6 +150,11 @@ class Splitor {
     static uint64_t ProcessUnalignedRequests(const off_t currentOffset,
                                              const uint64_t requestLength,
                                              RequestContext::Padding* padding);
+
+   /**
+    * Validate if the sequence num is within the cloneFileInfos
+   */
+    static bool ValidateSn(OpType opType, uint64_t seq, const CloneFileInfos& cloneFileInfos);
 
  private:
     // IO拆分模块所使用的配置信息

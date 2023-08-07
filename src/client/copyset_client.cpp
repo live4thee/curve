@@ -87,7 +87,7 @@ bool CopysetClient::FetchLeader(LogicPoolID lpid, CopysetID cpid,
 // 2. clientclosure再重试逻辑里调用copyset client重试
 // 这两种状况都会调用该接口，因为对于重试的RPC有可能需要重新push到队列中
 // 非重试的RPC如果重新push到队列中会导致死锁。
-int CopysetClient::ReadChunk(const ChunkIDInfo& idinfo, uint64_t sn,
+int CopysetClient::ReadChunk(const ChunkIDInfo& idinfo, uint64_t sn, const CloneFileInfos& cloneFileInfos,
                              off_t offset, size_t length, uint64_t appliedindex,
                              const RequestSourceInfo& sourceInfo,
                              google::protobuf::Closure* done) {
@@ -124,7 +124,7 @@ int CopysetClient::ReadChunk(const ChunkIDInfo& idinfo, uint64_t sn,
 
     auto task = [&](Closure* done, std::shared_ptr<RequestSender> senderPtr) {
         ReadChunkClosure *readDone = new ReadChunkClosure(this, done);
-        senderPtr->ReadChunk(idinfo, sn, offset, length,
+        senderPtr->ReadChunk(idinfo, sn, cloneFileInfos, offset, length,
                              appliedindex, sourceInfo, readDone);
     };
 
@@ -135,7 +135,7 @@ int CopysetClient::WriteChunk(const ChunkIDInfo& idinfo,
                               uint64_t fileId,
                               uint64_t epoch,
                               uint64_t sn,
-                              const std::vector<uint64_t>& snaps,
+                              const CloneFileInfos& cloneFileInfos,
                               const butil::IOBuf& data,
                               off_t offset, size_t length,
                               const RequestSourceInfo& sourceInfo,
@@ -177,7 +177,7 @@ int CopysetClient::WriteChunk(const ChunkIDInfo& idinfo,
 
     auto task = [&](Closure* done, std::shared_ptr<RequestSender> senderPtr) {
         WriteChunkClosure* writeDone = new WriteChunkClosure(this, done);
-        senderPtr->WriteChunk(idinfo, fileId, epoch, sn, snaps,
+        senderPtr->WriteChunk(idinfo, fileId, epoch, sn, cloneFileInfos,
                               data, offset, length, sourceInfo,
                               writeDone);
     };
@@ -186,11 +186,11 @@ int CopysetClient::WriteChunk(const ChunkIDInfo& idinfo,
 }
 
 int CopysetClient::ReadChunkSnapshot(const ChunkIDInfo& idinfo,
-    uint64_t sn, const std::vector<uint64_t>& snaps, off_t offset, size_t length, Closure *done) {
+    uint64_t sn, const CloneFileInfos& cloneFileInfos, off_t offset, size_t length, Closure *done) {
 
     auto task = [&](Closure* done, std::shared_ptr<RequestSender> senderPtr) {
         ReadChunkSnapClosure *readDone = new ReadChunkSnapClosure(this, done);
-        senderPtr->ReadChunkSnapshot(idinfo, sn, snaps, offset, length, readDone);
+        senderPtr->ReadChunkSnapshot(idinfo, sn, cloneFileInfos, offset, length, readDone);
     };
 
     return DoRPCTask(idinfo, task, done);

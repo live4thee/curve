@@ -99,7 +99,7 @@ TEST_P(SplitorAlignmentTest, Test) {
     EXPECT_EQ(0, Splitor::SingleChunkIO2ChunkRequests(
                      iotracker_, &metaCache_, &requests_, chunkIdInfo_,
                      params_.opType == OpType::WRITE ? &writeData_ : nullptr,
-                     params_.offset, params_.length, 0, {0}));
+                     params_.offset, params_.length, 1, EmptyCloneFileInfos(1)));
 
     EXPECT_EQ(params_.expectedRequests, requests_.size());
     EXPECT_EQ(params_.expectedUnAlignedRequests, UnalignedRequests());

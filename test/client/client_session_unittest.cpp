@@ -113,6 +113,7 @@ TEST(ClientSession, LeaseTaskTest) {
 
     finfo->set_filename(filename);
     finfo->set_id(1);
+    finfo->set_seqnum(1);
     openresponse.set_statuscode(::curve::mds::StatusCode::kOK);
     openresponse.set_allocated_protosession(se);
     openresponse.set_allocated_fileinfo(finfo);
@@ -131,13 +132,17 @@ TEST(ClientSession, LeaseTaskTest) {
     };
     curve::mds::FileInfo * info = new curve::mds::FileInfo;
     info->set_filename(filename);
-    info->set_seqnum(2);
+    info->set_seqnum(1);
     info->set_id(1);
     info->set_parentid(0);
     info->set_filetype(curve::mds::FileType::INODE_PAGEFILE);
     info->set_chunksize(4 * 1024 * 1024);
     info->set_length(4 * 1024 * 1024 * 1024ul);
     info->set_ctime(12345678);
+    // put a clone file to satisfy the parameter check condition in IO Splitor
+    auto clone = info->add_clones();
+    clone->set_seqnum(1);
+    clone->set_recoversource(0);  
 
     ::curve::mds::ReFreshSessionResponse refreshresp;
     refreshresp.set_statuscode(::curve::mds::StatusCode::kOK);

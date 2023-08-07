@@ -68,9 +68,11 @@ void ServiceHelper::ProtoFileInfo2Local(const curve::mds::FileInfo& finfo,
     }
     if (finfo.has_seqnum()) {
         fi->seqnum = finfo.seqnum();
+        fi->cloneFileInfos.set_seqnum(finfo.seqnum());
     }
-    for (int i = 0; i < finfo.snaps_size(); i++) {
-        fi->snaps.emplace_back(finfo.snaps(i));
+    for (auto i = 0; i < finfo.clones_size(); i++) {
+        CloneFileInfo* clone = fi->cloneFileInfos.add_clones();
+        clone->CopyFrom(finfo.clones(i));
     }
     if (finfo.has_filestatus()) {
         fi->filestatus = (FileStatus)finfo.filestatus();

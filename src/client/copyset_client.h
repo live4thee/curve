@@ -82,6 +82,7 @@ class CopysetClient {
      * 读Chunk
      * @param idinfo为chunk相关的id信息
      * @param sn:文件版本号
+     * @param cloneFileInfos:当前chunk所有的快照和回滚信息
      * @param offset:读的偏移
      * @param length:读的长度
      * @param appliedindex:需要读到>=appliedIndex的数据
@@ -90,6 +91,7 @@ class CopysetClient {
      */
     int ReadChunk(const ChunkIDInfo& idinfo,
                   uint64_t sn,
+                  const CloneFileInfos& cloneFileInfos,
                   off_t offset,
                   size_t length,
                   uint64_t appliedindex,
@@ -102,7 +104,7 @@ class CopysetClient {
     * @param fileId: file id
     * @param epoch: file epoch
     * @param sn:文件版本号
-    * @param snaps: 现有快照版本号集合
+    * @param cloneFileInfos:当前chunk所有的快照和回滚信息
     * @param writeData:要写入的数据
      *@param offset:写的偏移
     * @param length:写的长度
@@ -113,7 +115,7 @@ class CopysetClient {
                    uint64_t fileId,
                    uint64_t epoch,
                    uint64_t sn,
-                   const std::vector<uint64_t>& snaps,
+                   const CloneFileInfos& cloneFileInfos,
                    const butil::IOBuf& writeData,
                    off_t offset,
                    size_t length,
@@ -124,14 +126,14 @@ class CopysetClient {
      * 读Chunk快照文件
      * @param idinfo为chunk相关的id信息
      * @param sn:文件版本号
-     * @param snaps:当前chunk所有快照序号列表
+     * @param cloneFileInfos:当前chunk所有的快照和回滚信息
      * @param offset:读的偏移
      * @param length:读的长度
      * @param done:上一层异步回调的closure
      */
     int ReadChunkSnapshot(const ChunkIDInfo& idinfo,
                   uint64_t sn,
-                  const std::vector<uint64_t>& snaps,
+                  const CloneFileInfos& cloneFileInfos,
                   off_t offset,
                   size_t length,
                   Closure *done);

@@ -33,6 +33,7 @@
 
 #include "include/client/libcurve.h"
 #include "src/common/net_common.h"
+#include "proto/common.pb.h"
 
 namespace curve {
 namespace client {
@@ -47,6 +48,8 @@ using EndPoint  = butil::EndPoint;
 using Status    = butil::Status;
 
 using IOManagerID = uint64_t;
+using curve::common::CloneFileInfo;
+using curve::common::CloneFileInfos;
 
 // 操作类型
 enum class OpType {
@@ -70,6 +73,7 @@ enum class FileStatus {
     CloneMetaInstalled,
     Cloned,
     BeingCloned,
+    ToBeDeleted,
 };
 
 typedef struct ChunkIDInfo {
@@ -141,7 +145,7 @@ typedef struct FInfo {
     uint64_t        ctime;
     uint64_t        seqnum;
     uint64_t        snapSeqnum; // 待读取的快照版本号（用于测试读快照文件接口）
-    std::vector<uint64_t> snaps;
+    CloneFileInfos  cloneFileInfos;
     // userinfo是当前操作这个文件的用户信息
     UserInfo_t      userinfo;
     // owner是当前文件所属信息
@@ -359,6 +363,50 @@ inline std::string Snaps2Str(const std::vector<uint64_t>& snaps) {
         str.pop_back();
     }
     return str;
+}
+
+// compare if two CloneFileInfo object are equal
+inline bool operator == (const CloneFileInfo& info1, const CloneFileInfo& info2) {
+    return info1.id() == info2.id() && info1.seqnum() == info2.seqnum() &&
+           info1.recoversource() == info2.recoversource() &&
+           std::equal(info1.snaps().begin(), info1.snaps().end(), info2.snaps().begin());
+}
+
+// compare if two CloneFileInfo object are not equal
+inline bool operator != (const CloneFileInfo& info1, const CloneFileInfo& info2) {
+    return !(info1 == info2);
+}
+
+// compare if two CloneFileInfos object are equal
+// it may be more efficient than comparing DebugString
+inline bool operator == (const CloneFileInfos& info1, const CloneFileInfos& info2)  {
+    if (info1.seqnum() == info2.seqnum() && info1.clones_size() == info2.clones_size()) {
+        for (int i = 0; i < info1.clones_size(); i++) {
+            if (info1.clones(i) != info2.clones(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+// compare if two CloneFileInfos object are not equal
+inline bool operator != (const CloneFileInfos& info1, const CloneFileInfos& info2)  {
+    return !(info1 == info2);
+}
+
+// it's mainly for the sake of ut test
+inline CloneFileInfos EmptyCloneFileInfos(uint64_t sn) {
+    CloneFileInfos infos;
+    infos.set_seqnum(sn);
+    CloneFileInfo info;
+    info.set_id(1);
+    info.set_seqnum(sn);
+    info.set_recoversource(0);
+    auto clone = infos.add_clones();
+    clone->CopyFrom(info);
+    return infos;
 }
 
 }   // namespace client

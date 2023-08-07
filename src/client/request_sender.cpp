@@ -75,6 +75,7 @@ int RequestSender::Init(const IOSenderOption& ioSenderOpt) {
 
 int RequestSender::ReadChunk(const ChunkIDInfo& idinfo,
                              uint64_t sn,
+                             const CloneFileInfos& cloneFileInfos,
                              off_t offset,
                              size_t length,
                              uint64_t appliedindex,
@@ -94,7 +95,8 @@ int RequestSender::ReadChunk(const ChunkIDInfo& idinfo,
     request.set_chunkid(idinfo.cid_);
     request.set_offset(offset);
     request.set_size(length);
-
+    request.set_sn(sn);
+    request.mutable_clonefileinfos()->CopyFrom(cloneFileInfos);
     if (sourceInfo.IsValid()) {
         request.set_clonefilesource(sourceInfo.cloneFileSource);
         request.set_clonefileoffset(sourceInfo.cloneFileOffset);
@@ -114,7 +116,7 @@ int RequestSender::WriteChunk(const ChunkIDInfo& idinfo,
                               uint64_t fileId,
                               uint64_t epoch,
                               uint64_t sn,
-                              const std::vector<uint64_t>& snaps,
+                              const CloneFileInfos& cloneFileInfos,
                               const butil::IOBuf& data,
                               off_t offset,
                               size_t length,
@@ -136,9 +138,7 @@ int RequestSender::WriteChunk(const ChunkIDInfo& idinfo,
     request.set_copysetid(idinfo.cpid_);
     request.set_chunkid(idinfo.cid_);
     request.set_sn(sn);
-    for(uint64_t seq:snaps) {
-        request.add_snaps(seq);
-    }
+    request.mutable_clonefileinfos()->CopyFrom(cloneFileInfos);
     request.set_offset(offset);
     request.set_size(length);
     request.set_fileid(fileId);
@@ -160,7 +160,7 @@ int RequestSender::WriteChunk(const ChunkIDInfo& idinfo,
 
 int RequestSender::ReadChunkSnapshot(const ChunkIDInfo& idinfo,
                                      uint64_t sn,
-                                     const std::vector<uint64_t>& snaps,
+                                     const CloneFileInfos& cloneFileInfos,
                                      off_t offset,
                                      size_t length,
                                      ClientClosure *done) {
@@ -177,9 +177,7 @@ int RequestSender::ReadChunkSnapshot(const ChunkIDInfo& idinfo,
     request.set_copysetid(idinfo.cpid_);
     request.set_chunkid(idinfo.cid_);
     request.set_sn(sn);
-    for(uint64_t seq:snaps) {
-        request.add_snaps(seq);
-    }
+    request.mutable_clonefileinfos()->CopyFrom(cloneFileInfos);
     request.set_offset(offset);
     request.set_size(length);
     ChunkService_Stub stub(&channel_);
