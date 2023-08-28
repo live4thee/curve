@@ -1578,6 +1578,8 @@ StatusCode CurveFS::RecoverFile2Snap(const std::string &fileName, FileSeqType se
     clone->set_seqnum(oldSeqNum + 1);
     clone->set_recoversource(seq);
     fileInfo.set_seqnum(oldSeqNum + 1);
+    // set file length to snapshot length considering file extent scenario
+    fileInfo.set_length(snapShotFileInfo.length());
 
     ret = SnapShotFile(&fileInfo, &hiddenFileInfo);
     if (ret != StatusCode::kOK) {

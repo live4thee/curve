@@ -89,6 +89,8 @@ void CleanTaskManager::CheckCleanResult(void) {
                         continue;
                     } else {
                         LOG(INFO) << "Found residual task in cleanBatchSnapTask before erase, run it again";
+                        iter->second->GetMutableTaskProgress()->SetProgress(0);
+                        iter->second->GetMutableTaskProgress()->SetStatus(TaskStatus::PROGRESSING);
                         cleanWorkers_->Enqueue(iter->second->Closure());
                     }
                 } else if (taskProgress.GetStatus() == TaskStatus::FAILED) {

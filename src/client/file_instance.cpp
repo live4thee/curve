@@ -240,7 +240,7 @@ FileInstance* FileInstance::Open4Readonly(const FileServiceOption& opt,
     fileInfo.fullPathName = filename;
     instance->GetIOManager4File()->UpdateFileInfo(fileInfo);
     instance->GetIOManager4File()->UpdateFileEpoch(fEpoch);
-
+    instance->finfo_ = fileInfo;
     return instance;
 }
 
