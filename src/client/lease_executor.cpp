@@ -161,6 +161,15 @@ void LeaseExecutor::IncremRefreshFailed() {
 void LeaseExecutor::CheckNeedUpdateFileInfo(const FInfo& fileInfo) {
     MetaCache* metaCache = iomanager_->GetMetaCache();
 
+    uint64_t currentFileSn = metaCache->GetLatestFileSn();
+    uint64_t newSn = fileInfo.seqnum;
+    if (newSn > currentFileSn) {
+        LOG(INFO) << "Update file sn, new file sn = " << newSn
+                  << ", current sn = " << currentFileSn
+                  << ", filename = " << fullFileName_;
+        metaCache->SetLatestFileSn(newSn);
+    }
+
     CloneFileInfos currentInfos = metaCache->GetLatestCloneFileInfos();
     if(currentInfos != fileInfo.cloneFileInfos) {
         LOG(INFO) << "Update cloneFileInfos, new infos = \n" << fileInfo.cloneFileInfos.DebugString()
